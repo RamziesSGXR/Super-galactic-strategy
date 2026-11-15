@@ -1,6 +1,6 @@
 # Super Galactic Strategy
 
-**Prototype 0.6.0.** Working title of the design: *Four Fronts*.
+**Prototype 0.6.1.** Working title of the design: *Four Fronts*.
 
 You are Federation High Command at the capital, Aurelia. Three enemies come at you on three war fronts: the Foundry
 in the west, the Swarm in the east, the Veil in the south. You fight each front like its own board game, moving
@@ -22,7 +22,7 @@ Add `?seed=7` to replay the same war, or `?tutorial` for the guided first rounds
 - **One front at a time.** Each round goes west, east, south. On each front you move, your attacks are fought,
   then that enemy moves and its attacks are fought. The strip above the map shows which front is in play.
 - **Only you cross fronts.** Enemies keep to their own front and the capital. You can take a fleet from one front
-  to the next along the few lanes that cross, or through the capital, one system a turn.
+  to the next along the lanes that cross where the fronts meet, or through the capital, one system a turn.
 - **Fights.** A ship has strength 3. Your fleets against the system's own defence (2, or more with fortress
   worlds, cards and the priority front) plus any fleet there. The loser falls back to a neighbouring system of its
   own with half its ships, or is lost if it has nowhere to go. The winner loses a few.
@@ -36,8 +36,8 @@ Add `?seed=7` to replay the same war, or `?tutorial` for the guided first rounds
 ## The map
 
 Five rings of systems round the capital, 64 in all, with more systems on each ring going out. Every system has a
-lane inward; only some neighbours on a ring are joined, so there are dead ends and gaps, and only a few lanes join
-one front to the next. Each system has two to four worlds that pay fuel, Army or Vanguard, and one key world, shown
+lane inward; only some neighbours on a ring are joined, so there are dead ends and gaps. Where two fronts meet,
+most rings are joined across (rings 2 and 4 always), so there are about nine or ten lanes between fronts. Each system has two to four worlds that pay fuel, Army or Vanguard, and one key world, shown
 in full when you open the system. A system cut off from the capital pays nothing and defends at half.
 
 ## The deck
@@ -101,7 +101,7 @@ only its two strengths going in and `win` coming out.
 ## Checks
 
 - `npm run sim [games]` plays whole wars with no screen: the test bot, then nobody at the controls.
-  At 0.6.0, of 100 wars the simple bot wins about 6 in 10 in about 30 rounds; every loss is to the Veil.
+  At 0.6.1, of 100 wars the simple bot wins 75 in about 30 rounds; nearly every loss is to the Veil.
   An undefended Federation falls by about round 9.
 - `python3 test/ui.py` and `python3 test/tutorial.py` (with `npm start` running) play the opening and follow the
   tutorial by tapping the map and the buttons, at phone and desktop size.

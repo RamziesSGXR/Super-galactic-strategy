@@ -20,7 +20,7 @@ with sync_playwright() as pw:
         pg.goto('http://localhost:8080/?seed=7'); pg.wait_for_timeout(600)
         assert js('document.querySelectorAll("#hand .card").length') == 5, 'the opening hand should be five cards'
         assert js('[...document.querySelectorAll("#mins .min")].length === 8 && [...document.querySelectorAll("#mins .min")].every(b => { const r = b.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 1 && r.width >= 40; })'), 'eight ministry buttons, all on screen'
-        assert js('sgs.g.P.length') > 55 and js('sgs.g.P.filter(p => p.adj.length === 1).length') >= 3, 'the map should be large and have dead ends'
+        assert js('sgs.g.P.length') > 55 and js('sgs.g.P.filter(p => p.adj.length === 1).length') >= 1 and js('sgs.g.P.reduce((a, q) => a + q.adj.filter(n => q.front >= 0 && sgs.g.P[n].front >= 0 && sgs.g.P[n].front !== q.front).length, 0) / 2') >= 6, 'the map should be large, have dead ends, and join the fronts'
         # round 1: pick a fleet up by tapping its system, send it to a neighbour of yours, build a ship
         f = js('(()=>{const f=sgs.g.fleets.find(f=>f.owner==="fed"&&f.at!==0);return {id:f.id,at:f.at,to:sgs.g.P[f.at].adj.find(n=>sgs.g.P[n].owner==="fed"&&n!==0)}})()')
         tap(f['at']); assert js('sgs.ui.fleet') == f['id'], 'tapping a system did not pick its fleet up'

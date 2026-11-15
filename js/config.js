@@ -1,5 +1,5 @@
 // Every number and every name in the game lives here, so the prototype can be retuned or renamed in one place.
-export const VERSION = '0.6.0';
+export const VERSION = '0.6.1';
 
 export const C = {
   names: {
@@ -39,7 +39,7 @@ export const C = {
 
   // The map: rings of systems round the capital, more on each ring going out. `ring[i]` is systems per front on ring i+1.
   // Lanes are left out on purpose, so there are dead ends and gaps.
-  map: { ring: [2, 3, 4, 5, 7], radius: [0.17, 0.33, 0.5, 0.68, 0.88], second: 0.15, around: 0.38, across: 0.16 },
+  map: { ring: [2, 3, 4, 5, 7], radius: [0.17, 0.33, 0.5, 0.68, 0.88], second: 0.12, around: 0.32, across: 0.6 },
 
   start: { res: { fuel: 8, drop: 6, army: 8 }, morale: 60, fleets: [3, 2, 2, 2] },   // ships: at the capital, then one fleet on each front
   resMax: 30,

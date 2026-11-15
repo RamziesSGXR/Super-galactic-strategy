@@ -1,7 +1,7 @@
 // The board: the capital in the centre and five rings of star systems round it, more on each ring going out.
 // The map is cut into three war fronts, one per enemy, with that enemy's home on the outer ring.
 // Lanes join each system inward and some of its neighbours on the same ring. Many lanes are left out on purpose,
-// so there are dead ends, and only a few lanes cross from one front to the next. No DOM here.
+// so there are dead ends. Where two fronts meet, most rings are joined, so fleets can be passed between fronts. No DOM here.
 import { C } from './config.js';
 
 export function rng32(a) {
@@ -71,7 +71,8 @@ export function makeMap(seed = 1) {
     for (let i = 0; i < rings[k].length; i++) {
       const a = rings[k][i], b = rings[k][(i + 1) % rings[k].length], same = planets[a].front === planets[b].front;
       const must = same && (planets[a].kind === 'home' || planets[b].kind === 'home');   // a home is never a dead end
-      if (must || rnd() < (same ? M.around : M.across)) link(a, b);
+      const cross = !same && (k === 1 || k === 3);   // rings 2 and 4 always join where two fronts meet, so every pair of fronts is linked twice at least
+      if (must || cross || rnd() < (same ? M.around : M.across)) link(a, b);
     }
   }
   // Relic systems: two on each front's third ring keep a rare card.
