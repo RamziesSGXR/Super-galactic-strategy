@@ -59,26 +59,21 @@ function top() {
   const loot = C.fronts.map(fr => `<div style="--lc:${C.color[fr.f]}" class="lt"><b>${g.loot[fr.f]}</b><span>${fr.lootShort}</span></div>`).join('');
   $('top').innerHTML = `<div class="ttl">${N.game}<small>${VERSION}</small></div><div class="rd">ROUND ${g.round}</div>
     <div class="ro">${cell('fuel', 'a')}${cell('drop', '')}${cell('army', '')}${loot}</div>`;
-  const last = g.log[g.log.length - 1], adv = g.phase === 'plan' && !busy() ? g.advice().find(a => a.kind === 'bad' || a.kind === 'warn') : null;
-  $('bulletin').className = adv ? adv.kind : last.kind; $('bulletin').textContent = adv ? `INTELLIGENCE › ${adv.text}` : `R${last.r} › ${last.text}`;
+  const last = g.log[g.log.length - 1];
+  $('bulletin').className = last.kind; $('bulletin').textContent = `R${last.r} › ${last.text}`;
 }
 
 // ---------- whose turn it is ----------
 function turnbar() {
-  const fr = front();
   const h = '<div class="trk">' + C.fronts.map((x, i) => `<span class="${g.fi === i ? 'on' : ''}${g.atWar(i) ? '' : ' off'}" style="--tc:${C.color[x.f]}">${x.short}</span>`).join('') +
-    `<button class="plate btn sm" data-a="cam">${view.front != null && view.front >= 0 ? 'WHOLE MAP' : 'THIS FRONT'}</button></div>`;
-  let sub;
-  if (g.phase === 'over') sub = 'The war is over.';
-  else if (ui.show) sub = `<b style="color:${C.color[ui.show.f]}">${N.factions[ui.show.f].toUpperCase()}</b> ${esc(ui.show.text)}`;
-  else if (g.battle) sub = g.battle.kind === 'def' ? `<b style="color:${C.color[g.battle.f]}">${N.factions[g.battle.f].toUpperCase()}</b> attacks ${esc(g.P[g.battle.pid].name)}.` : `<b class="cy">YOUR ATTACK</b> on ${esc(g.P[g.battle.pid].name)}.`;
-  else if (!fr) sub = '<b class="am">YOUR DECISION.</b> No front is at war. Move one fleet if you wish, then end the round.';
-  else sub = `<b class="am">YOUR DECISION</b> on the ${fr.name.toLowerCase()}: attack, defend, or hold.`;
-  $('turn').innerHTML = h + `<div class="tsub">${sub}</div>`;
+    `<button class="plate btn sm" data-a="cam">${view.front != null && view.front >= 0 ? 'WHOLE MAP' : 'THIS FRONT'}</button><button class="plate btn sm q" data-a="help" aria-label="Rules">?</button></div>`;
+  // The only words here are what the enemy has just done. How to play is in the tutorial and behind the ? button.
+  const sub = ui.show ? `<div class="tsub"><b style="color:${C.color[ui.show.f]}">${N.factions[ui.show.f].toUpperCase()}</b> ${esc(ui.show.text)}</div>` : '';
+  $('turn').innerHTML = h + sub;
 }
 
 // ---------- the ministries ----------
-const head = k => `<div class="mh"><span>${C.ministries[k].does}</span></div>`;
+const head = () => '';
 const shieldSvg = cl => `<svg class="shd ${cl}" viewBox="0 0 14 16"><path d="M1 1h12v8l-6 6-6-6z"/></svg>`;
 function threatLine(p, t) {
   const D = g.strength(p.id), [w, cl] = odds(D, t.hp);
@@ -106,7 +101,7 @@ function tabSys() {
   if (fed && T.yard) h += `<div class="sm2 am">${T.name}: ${T.yard}</div>`;
   p.worlds.forEach((w, i) => {
     const W = C.worlds[w.type];
-    h += `<div class="mis"><div><b style="color:${W.col}">${esc(w.name)}</b> <span class="sm2 dim">${W.name}${W.res ? ` · +${W.y} ${RES[W.res]}` : W.fort ? ` · +${W.fort} DEFENCE` : ''}${W.card ? ` · feeds ${C.bcards[W.card].name}` : ''}</span>${i === p.key ? '<div class="sm2 dim">The key world, shown above.</div>' : ''}</div><span></span></div>`;
+    h += `<div class="mis"><div><b style="color:${W.col}">${esc(w.name)}</b> <span class="sm2 dim">${W.name}${W.res ? ` · +${W.y} ${RES[W.res]}` : W.fort ? ` · +${W.fort} DEFENCE` : ''}${W.card ? ` · feeds ${C.bcards[W.card].name}` : ''}</span></div><span></span></div>`;
   });
   return h + '</section>';
 }
@@ -134,15 +129,15 @@ function tabDef() {
     h += `<div class="front" style="--fc:${fi < 0 ? 'var(--cyan)' : C.color[C.fronts[fi].f]}"><div class="fh"><b>${fi < 0 ? 'AT THE CAPITAL' : C.fronts[fi].name}</b><span class="sm2 dim">${fi === g.fi ? 'IN PLAY' : ''}</span></div>` +
       fs.map(f => `<button class="ln lk" data-a="pick" data-f="${f.id}">${ships(f.ships)} at <b>${esc(g.P[f.at].name)}</b> · ${f.moved ? '<span class="dim">has moved this round</span>' : '<span class="cy">ready</span>'}</button>`).join('') + '</div>';
   }
-  h += `</section><section><h3>Your battle deck · ${g.deck('fed').length} cards</h3><div class="sm2 dim" style="margin-bottom:4px">When fleets meet you draw ${C.battle.hand} of these at random. The deck is made of what you hold: worlds, special sites and propaganda.</div>${deckList('fed')}</section>`;
-  return h + `<div class="sm2 dim">A ship costs ${costTxt(C.ship.cost, true)}, is ${HP} hit points and fires 1 a round. A fleet may travel any distance through systems you hold, once a round.</div>`;
+  h += `</section><section><h3>Your battle deck · ${g.deck('fed').length} cards</h3>${deckList('fed')}</section>`;
+  return h;
 }
 function tabPro() {
   const inc = g.income();
   let h = head('pro') + '<section><h3>Stock</h3><table class="tb"><tr><th></th><th>HAVE</th><th>NEXT ROUND</th></tr>';
   for (const k of ['fuel', 'drop', 'army']) h += `<tr><td>${RES[k]}</td><td class="${k === 'fuel' ? 'am' : 'cy'}">${f1(g.res[k])}</td><td>+${f1(inc[k])}</td></tr>`;
-  for (const fr of C.fronts) h += `<tr><td>${fr.loot}</td><td style="color:${C.color[fr.f]}">${g.loot[fr.f]}</td><td class="dim">won on the ${fr.short.toLowerCase()} front</td></tr>`;
-  h += `</table><div class="sm2 dim">Nothing is kept above ${C.resMax}.</div></section><section><h3>Exchange · ${C.trade.give} for ${C.trade.get}</h3><div class="grid2">`;
+  for (const fr of C.fronts) h += `<tr><td>${fr.loot}</td><td style="color:${C.color[fr.f]}">${g.loot[fr.f]}</td><td class="dim">${fr.short}</td></tr>`;
+  h += `</table></section><section><h3>Exchange · ${C.trade.give} for ${C.trade.get}</h3><div class="grid2">`;
   for (const [a, b] of [['army', 'fuel'], ['drop', 'fuel'], ['fuel', 'army'], ['drop', 'army'], ['fuel', 'drop'], ['army', 'drop']])
     h += `<button class="plate btn sm" data-a="trade" data-f="${a}" data-t="${b}" ${g.ready() && g.canPay({ [a]: C.trade.give }) ? '' : 'disabled'}>${C.trade.give} ${RES[a]} → ${C.trade.get} ${RES[b]}</button>`;
   return h + '</div></section>';
@@ -150,22 +145,22 @@ function tabPro() {
 function tabExp() {
   let h = head('exp');
   const p = g.P[ui.sel], fl = g.fedLinked(), mine = p && p.owner === 'fed';
-  h += `<section><h3>Special sites</h3><div class="sm2 dim" style="margin-bottom:6px">Each front has its own resource, won with every victory there. Spend it on a site and two cards nobody else has join your battle deck. ${mine ? `Building at <b class="cy">${esc(p.name)}</b>.` : 'Tap one of your systems on the front in play first.'}</div>`;
+  h += `<section><h3>Special sites</h3>${mine ? `<div class="sm2 cy" style="margin-bottom:6px">${esc(p.name.toUpperCase())}</div>` : ''}`;
   for (const k in C.sites) {
     const s = C.sites[k], have = g.P.filter(q => q.site === k).length;
-    h += `<button class="plate amber btn pol" data-a="site" data-k="${k}" ${mine && g.canSite(p.id, k) ? '' : 'disabled'}><b>${s.name} · ${s.cost} ${lootName(s.loot)}</b><span>${s.text} You have ${g.loot[s.loot]} ${lootName(s.loot).toLowerCase()} and ${have} of ${C.siteMax} built.</span></button>`;
+    h += `<button class="plate amber btn pol" data-a="site" data-k="${k}" ${mine && g.canSite(p.id, k) ? '' : 'disabled'}><b>${s.name} · ${s.cost} ${lootName(s.loot)}</b><span>${s.text} · ${g.loot[s.loot]} / ${s.cost} · built ${have} / ${C.siteMax}</span></button>`;
   }
   h += '</section><section><h3>Develop a system</h3>';
   if (mine && p.id !== 0 && p.worlds.some(w => C.worlds[w.type].res)) {
     const c = g.developCost(p), max = p.dev >= C.develop.max;
     h += `<div class="sm2"><b>${esc(p.name)}</b> · level ${p.dev} of ${C.develop.max}</div><button class="plate amber btn" style="width:100%;margin-top:6px" data-a="dev" data-p="${p.id}" ${!max && fl.has(p.id) && g.ready() && g.canPay(c) ? '' : 'disabled'}>${max ? 'FULLY DEVELOPED' : `DEVELOP · ${costTxt(c, true)} · +${C.develop.mult * 100}% OUTPUT`}</button>`;
-  } else h += '<div class="sm2 dim">Tap one of your systems with a refinery, forge or colony.</div>';
+  }
   return h + '</section>';
 }
 function tabTru() {
   const list = (o, none) => (g.truth[o].length ? g.truth[o].map(id => `<div class="sm2"><b class="cy">${C.bcards[id].name}</b> <span class="dim">${C.bcards[id].text}</span></div>`).join('') : `<div class="sm2 dim">${none}</div>`);
   let h = head('tru') + `<section><h3>Your propaganda · ${g.truth.fed.length} of ${C.truthMax}</h3>${list('fed', 'None yet.')}</section>
-    <section><h3>How it works</h3><div class="sm2 dim">You do not manage this. Take a system and a VICTORY NEWSREEL joins your battle deck; hold one and you gain HEROES OF THE LINE; lose one and you gain NOT ONE STEP BACK. A propaganda card is used up when played. If both sides play propaganda in the same round, the stronger one takes the other's card.</div></section><section><h3>Enemy propaganda</h3>`;
+    <section><h3>Enemy propaganda</h3>`;
   for (const f of C.factions) if (g.F[f].state === 'active') h += `<div class="front" style="--fc:${C.color[f]}"><div class="fh"><b>${N.factions[f]}</b></div>${list(f, 'None.')}</div>`;
   return h + '</section>';
 }
@@ -173,11 +168,11 @@ function tabHum() {
   const inc = g.income();
   let h = head('hum') + '<section><h3>Who the colonies send</h3>';
   for (const k in C.policy) h += `<button class="plate amber btn pol${g.policy === k ? ' on' : ''}" data-a="pol" data-k="${k}" ${g.ready() ? '' : 'disabled'}><b>${C.policy[k].name}</b><span>${C.policy[k].text}</span></button>`;
-  return h + `<div class="sm2 dim">Next round at this setting: +${f1(inc.drop)} ${N.drop}, +${f1(inc.army)} ${N.army}.</div></section>`;
+  return h + `<div class="sm2 dim">NEXT ROUND: +${f1(inc.drop)} ${N.drop} · +${f1(inc.army)} ${N.army}</div></section>`;
 }
 function tabEmp() {
   const fl = g.fedLinked();
-  let h = head('emp') + `<section><h3>Priority front</h3><div class="sm2 dim" style="margin-bottom:6px">One front gets the work and the supply: its systems have +${C.priority.fort} hit points, pay +${(C.priority.yield - 1) * 100}%, and ships built there cost ${C.priority.fuel} less fuel.</div>`;
+  let h = head('emp') + `<section><h3>Priority front · +${C.priority.fort} HP · +${(C.priority.yield - 1) * 100}% OUTPUT · −${C.priority.fuel} FUEL A SHIP</h3>`;
   C.fronts.forEach((fr, k) => {
     const sys = g.P.filter(p => p.front === k), mine = sys.filter(p => p.owner === 'fed'), thr = mine.filter(p => g.threat(p.id)).length;
     const mineS = g.fleets.filter(f => f.owner === 'fed' && g.P[f.at].front === k).reduce((a, f) => a + f.ships, 0), foeS = g.fleets.filter(f => f.owner === fr.f).reduce((a, f) => a + f.ships, 0);
@@ -188,10 +183,10 @@ function tabEmp() {
 }
 function tabUni() {
   const fed = g.P.filter(p => p.owner === 'fed').length, near = new Set(g.fleets.filter(f => f.owner !== 'fed' && g.P[0].adj.includes(f.at)).map(f => f.owner)).size;
-  return head('uni') + `<section><h3>The standing of the war</h3><div class="sm2">${fed} of ${g.P.length} systems fly the ${N.fed} flag.</div>
+  return head('uni') + `<section><h3>The standing of the war</h3><div class="sm2">SYSTEMS HELD: ${fed} / ${g.P.length}</div>
     <div class="bar big2"><i style="width:${fed / g.P.length * 100}%"></i></div>
-    <div class="sm2 ${near >= 2 ? 'rd2' : near ? 'am' : 'dim'}" style="margin-top:6px">${near} ${near === 1 ? 'enemy has' : 'enemies have'} a fleet beside ${N.capital}. Two striking it in the same round is defeat.</div>
-    <div class="sm2 dim">Victory: take all three enemy homes. Destroyed so far: ${C.factions.filter(f => g.F[f].state === 'dead').length} of 3.</div>
+    <div class="sm2 ${near >= 2 ? 'rd2' : near ? 'am' : 'dim'}" style="margin-top:6px">ENEMIES BESIDE ${N.capital.toUpperCase()}: ${near}</div>
+    <div class="sm2 dim">ENEMIES DESTROYED: ${C.factions.filter(f => g.F[f].state === 'dead').length} / 3</div>
     <div class="sm2 dim">Systems taken ${g.stats.taken} · fallen ${g.stats.fallen} · defences held ${g.stats.held}</div></section>
     <section><div class="row"><button class="plate btn sm grow" data-a="log">WAR LOG</button><button class="plate btn sm grow" data-a="help">RULES</button></div>
     <div class="row" style="margin-top:6px"><button class="plate amber btn sm grow" data-a="asktut">TUTORIAL</button><button class="plate btn sm grow" data-a="ask">NEW WAR</button></div></section>`;
@@ -212,24 +207,22 @@ function side() {
 function actbar() {
   const fr = front(), p = g.P[ui.sel], f = myFleet(), lock = busy() || !g.ready();
   let h = '';
-  if (g.phase === 'over') h = '<div class="arow"><span class="sm2">The war is over.</span></div>';
-  else if (lock) h = `<div class="arow"><span class="sm2 dim">${g.battle ? 'Battle stations.' : 'Watch the map.'}</span></div>`;
+  if (g.phase === 'over' || lock) h = '<div class="arow"></div>';
   else if (ui.pend) {
-    const q = g.P[ui.pend.pid], n = ui.half ? Math.ceil(f.ships / 2) : f.ships;
-    if (ui.pend.type === 'atk') { const [w, cl] = odds(n * HP, g.strength(q.id)); h = `<div class="arow"><span class="grow"><b class="am">ATTACK ${esc(q.name.toUpperCase())}</b><br><span class="sm2">Your ${ships(n)}: ${n * HP} hit points against ${g.strength(q.id)}. <b class="${cl}">${w}</b></span></span><button class="plate btn sm" data-a="pcancel">CANCEL</button></div><button class="plate btn go" data-a="confirm">ATTACK: THIS IS YOUR DECISION FOR THE FRONT</button>`; }
-    else h = `<div class="arow"><span class="grow"><b class="cy">MOVE TO ${esc(q.name.toUpperCase())}</b><br><span class="sm2">${ships(n)} go there. It will have ${g.strength(q.id) + n * HP} hit points.</span></span><button class="plate btn sm" data-a="pcancel">CANCEL</button></div><button class="plate btn go" data-a="confirm">MOVE: THIS IS YOUR DECISION FOR THE FRONT</button>`;
+    const q = g.P[ui.pend.pid], n = ui.half ? Math.ceil(f.ships / 2) : f.ships, atk = ui.pend.type === 'atk', [w, cl] = odds(n * HP, g.strength(q.id));
+    h = `<div class="arow"><span class="grow"><b class="${atk ? 'am' : 'cy'}">${esc(q.name.toUpperCase())}</b> <span class="sm2">${atk ? `${n * HP} vs ${g.strength(q.id)} <b class="${cl}">${w}</b>` : `${g.strength(q.id)} → ${g.strength(q.id) + n * HP}`}</span></span><button class="plate btn sm" data-a="pcancel">CANCEL</button></div>
+      <button class="plate btn go" data-a="confirm">${atk ? 'ATTACK' : 'MOVE'} · ${ships(n)}</button>`;
   } else {
     let row = '';
-    if (f) row = `<b class="cy">FLEET · ${ships(f.ships)}</b><span class="sm2 grow">at ${esc(g.P[f.at].name)}. Tap an <b class="am">amber</b> ring to attack, a <b class="cy">cyan</b> ring to move there.</span>` + (f.ships > 1 ? `<button class="plate btn sm${ui.half ? ' on' : ''}" data-a="half">${ui.half ? 'SEND HALF' : 'SEND ALL'}</button>` : '');
-    else if (p) row = `<b class="${p.owner === 'fed' ? 'cy' : 'rd2'}">${esc(p.name.toUpperCase())}</b><span class="sm2 grow">${g.strength(p.id)} hit points${p.owner === 'fed' && g.fleetAt(p.id, 'fed') ? ' · its fleet has moved this round' : ''}</span>`;
-    else row = `<span class="sm2 grow">${fr ? 'Tap one of your fleets to attack or defend with it. Tap one of your systems to build.' : 'Tap a fleet to move it, or a system to build.'}</span>`;
+    if (f) row = `<b class="cy grow">${esc(g.P[f.at].name.toUpperCase())} · ${ships(f.ships)}</b>` + (f.ships > 1 ? `<button class="plate btn sm${ui.half ? ' on' : ''}" data-a="half">${ui.half ? 'SEND HALF' : 'SEND ALL'}</button>` : '');
+    else if (p) row = `<b class="${p.owner === 'fed' ? 'cy' : 'rd2'} grow">${esc(p.name.toUpperCase())} · ${g.strength(p.id)} HP</b>`;
     let build = '';
     if (p && p.owner === 'fed' && g.onFront(p.id)) {
-      build += `<button class="plate amber btn sm" data-a="build" data-p="${p.id}" ${g.canBuild(p.id) ? '' : 'disabled'}>${p.built ? 'BUILT THIS ROUND' : 'BUILD SHIP · ' + costTxt(g.shipCost(p))}</button>`;
+      build += `<button class="plate amber btn sm" data-a="build" data-p="${p.id}" ${g.canBuild(p.id) ? '' : 'disabled'}>${p.built ? 'BUILT' : '+1 SHIP · ' + costTxt(g.shipCost(p))}</button>`;
       for (const k in C.sites) if (g.canSite(p.id, k)) build += `<button class="plate amber btn sm" data-a="site" data-k="${k}">${C.sites[k].name} · ${C.sites[k].cost}</button>`;
     }
-    h = `<div class="arow">${row}${p ? '<button class="plate btn sm" data-a="info">INFO</button><button class="plate btn sm" data-a="unsel">×</button>' : ''}</div>` +
-      `<div class="arow">${build}<button class="plate btn go hold" id="commit" data-a="hold">${fr ? `HOLD THE ${fr.short}` : 'END ROUND'}</button></div>`;
+    h = (p ? `<div class="arow">${row}<button class="plate btn sm" data-a="info">INFO</button><button class="plate btn sm" data-a="unsel">×</button></div>` : '') +
+      `<div class="arow">${build}<button class="plate btn go hold" id="commit" data-a="hold">${fr ? `HOLD ${fr.short}` : 'END ROUND'}</button></div>`;
   }
   $('deck').innerHTML = h;
   // what is ringed on the map: where the picked-up fleet can attack (amber) or move to (cyan)
@@ -243,14 +236,14 @@ function fight() {
   const el = $('fight'), b = g.battle;
   if (!fighting()) { el.hidden = true; return; }
   el.hidden = false;
-  const p = g.P[b.pid], you = b.you, foe = b.foe, bar = (s, color, name) => `<div class="hp"><div class="row"><b style="color:${color}">${name}</b><span class="grow"></span><b>${Math.max(0, Math.ceil(s.hp))}</b><span class="sm2 dim">/ ${s.max} · fires ${s.fire}</span></div><div class="bar big2"><i style="width:${Math.max(0, s.hp) / s.max * 100}%;background:${color}"></i></div></div>`;
+  const p = g.P[b.pid], you = b.you, foe = b.foe, bar = (s, color, name) => `<div class="hp"><div class="row"><b style="color:${color}">${name}</b><span class="grow"></span><b>${Math.max(0, Math.ceil(s.hp))}</b><span class="sm2 dim">/ ${s.max} · ▲${s.fire}</span></div><div class="bar big2"><i style="width:${Math.max(0, s.hp) / s.max * 100}%;background:${color}"></i></div></div>`;
   let h = `<div class="fh2"><b>${b.kind === 'atk' ? 'YOUR ATTACK ON' : 'DEFEND'} ${esc(p.name.toUpperCase())}</b><span class="sm2 dim">ROUND ${b.round + (b.done ? 0 : 1)}</span></div>
     <canvas id="fc"></canvas><div class="hps">${bar(you, 'var(--cyan)', 'YOU')}${bar(foe, C.color[b.f], N.factions[b.f].toUpperCase())}</div>
-    <div class="flog">${b.lines.length ? b.lines.map(l => `<div>${esc(l)}</div>`).join('') : `<div class="dim">${b.kind === 'def' ? `${N.factions[b.f]} is attacking. ` : ''}Each round you play one card, then every ship fires. First to run out of hit points loses${b.kind === 'def' ? '' : '; a draw goes to the defender'}.</div>`}</div>`;
+    <div class="flog">${b.lines.map(l => `<div>${esc(l)}</div>`).join('')}</div>`;
   if (b.done) h += `<div class="fres ${b.win ? 'cy' : 'rd2'}">${b.win ? 'VICTORY' : 'DEFEAT'} · ${esc(b.result || '')}</div><button class="plate btn go" data-a="bclose">CONTINUE</button>`;
   else if (ui.fx && ui.fx.t < 0.9) h += '<div class="fhand wait"><span class="sm2 dim">…</span></div>';
-  else if (you.hand.length) h += `<div class="sm2 dim" style="padding:0 2px 4px">Your hand, drawn from your deck. Tap a card to play it this round.</div><div class="fhand">${you.hand.map((id, i) => cardHtml(id, `data-a="bplay" data-i="${i}"`)).join('')}</div><button class="plate btn sm" style="width:100%;margin-top:6px" data-a="bplay">PLAY NO CARD THIS ROUND</button>`;
-  else h += '<div class="fhand wait"><b class="am">THE CARDS ARE SPENT. THE GUNS DECIDE.</b></div>';
+  else if (you.hand.length) h += `<div class="fhand">${you.hand.map((id, i) => cardHtml(id, `data-a="bplay" data-i="${i}"`)).join('')}</div><button class="plate btn sm" style="width:100%;margin-top:6px" data-a="bplay">PASS</button>`;
+  else h += '<div class="fhand wait"><b class="dim">GUNS ONLY</b></div>';
   $('fbody').innerHTML = h;
 }
 

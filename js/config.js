@@ -1,5 +1,5 @@
 // Every number and every name in the game lives here, so the prototype can be retuned or renamed in one place.
-export const VERSION = '0.7.0';
+export const VERSION = '0.7.1';
 
 export const C = {
   names: {
@@ -87,30 +87,30 @@ export const C = {
   battle: { hand: 3, maxRounds: 12 },
   bcards: {
     // every fleet carries these
-    volley:  { name: 'FULL VOLLEY',     kind: 'fleet', atk: 2, text: '+2 damage.' },
-    brace:   { name: 'BRACE',           kind: 'fleet', block: 3, text: 'Stops 3 damage this round.' },
+    volley:  { name: 'FULL VOLLEY',     kind: 'fleet', atk: 2, text: '' },
+    brace:   { name: 'BRACE',           kind: 'fleet', block: 3, text: '' },
     // from the worlds you hold
-    burn:    { name: 'AFTERBURN RUN',   kind: 'world', atk: 4, text: '+4 damage. From your refineries.' },
-    armour:  { name: 'ARMOURED PUSH',   kind: 'world', atk: 2, block: 2, text: '+2 damage and stops 2. From your forge worlds.' },
-    drop:    { name: 'VANGUARD DROP',   kind: 'world', atk: 1, heal: 3, text: '+1 damage and restores 3. From your colonies.' },
-    bulwark: { name: 'BULWARK',         kind: 'world', block: 5, text: 'Stops 5 damage this round. From your fortress worlds.' },
+    burn:    { name: 'AFTERBURN RUN',   kind: 'world', atk: 4, text: 'Refineries' },
+    armour:  { name: 'ARMOURED PUSH',   kind: 'world', atk: 2, block: 2, text: 'Forge worlds' },
+    drop:    { name: 'VANGUARD DROP',   kind: 'world', atk: 1, heal: 3, text: 'Colonies' },
+    bulwark: { name: 'BULWARK',         kind: 'world', block: 5, text: 'Fortress worlds' },
     // from special sites
-    railgun: { name: 'PROTOTYPE RAILGUN', kind: 'site', atk: 6, pierce: true, text: '+6 damage that cannot be stopped.' },
-    acid:    { name: 'ICHOR WARHEADS',  kind: 'site', atk: 3, sap: 1, text: '+3 damage, and the enemy fires 1 less each round after.' },
-    mirror:  { name: 'PEARL MIRROR',    kind: 'site', block: 99, reflect: 3, text: 'Stops all damage this round and turns 3 back.' },
+    railgun: { name: 'PROTOTYPE RAILGUN', kind: 'site', atk: 6, pierce: true, text: 'Cannot be blocked' },
+    acid:    { name: 'ICHOR WARHEADS',  kind: 'site', atk: 3, sap: 1, text: 'Enemy fire −1' },
+    mirror:  { name: 'PEARL MIRROR',    kind: 'site', block: 99, reflect: 3, text: 'Turns 3 back' },
     // Ministry of Truth
-    newsreel:{ name: 'VICTORY NEWSREEL', kind: 'truth', power: 2, heal: 4, atk: 1, text: 'Restores 4, +1 damage. Earned by taking a system.' },
-    heroes:  { name: 'HEROES OF THE LINE', kind: 'truth', power: 3, block: 3, atk: 2, text: 'Stops 3, +2 damage. Earned by holding a system.' },
-    lastStand: { name: 'NOT ONE STEP BACK', kind: 'truth', power: 4, block: 4, heal: 3, text: 'Stops 4 and restores 3. Earned when a system of yours falls.' },
+    newsreel:{ name: 'VICTORY NEWSREEL', kind: 'truth', power: 2, heal: 4, atk: 1, text: 'System taken' },
+    heroes:  { name: 'HEROES OF THE LINE', kind: 'truth', power: 3, block: 3, atk: 2, text: 'System held' },
+    lastStand: { name: 'NOT ONE STEP BACK', kind: 'truth', power: 4, block: 4, heal: 3, text: 'System lost' },
     // the enemies
-    rush:    { name: 'SWARM RUSH',      kind: 'foe', atk: 3, text: '+3 damage.' },
-    frenzy:  { name: 'FEEDING FRENZY',  kind: 'foe', atk: 2, heal: 2, text: '+2 damage and restores 2.' },
-    siege:   { name: 'SIEGE GUNS',      kind: 'foe', atk: 5, text: '+5 damage.' },
-    plating: { name: 'IRON PLATING',    kind: 'foe', block: 4, text: 'Stops 4 damage.' },
-    phase:   { name: 'PHASE STRIKE',    kind: 'foe', atk: 3, pierce: true, text: '+3 damage that cannot be stopped.' },
-    fog:     { name: 'MIND FOG',        kind: 'foe', block: 2, sap: 1, text: 'Stops 2, and you fire 1 less each round after.' },
-    dread:   { name: 'DREAD BROADCAST', kind: 'truth', power: 3, atk: 2, sap: 1, text: '+2 damage, and you fire 1 less. Earned when it takes a system.' },
-    triumph: { name: 'HIVE TRIUMPHANT', kind: 'truth', power: 2, heal: 4, text: 'Restores 4. Earned when it repels you.' },
+    rush:    { name: 'SWARM RUSH',      kind: 'foe', atk: 3, text: '' },
+    frenzy:  { name: 'FEEDING FRENZY',  kind: 'foe', atk: 2, heal: 2, text: '' },
+    siege:   { name: 'SIEGE GUNS',      kind: 'foe', atk: 5, text: '' },
+    plating: { name: 'IRON PLATING',    kind: 'foe', block: 4, text: '' },
+    phase:   { name: 'PHASE STRIKE',    kind: 'foe', atk: 3, pierce: true, text: 'Cannot be blocked' },
+    fog:     { name: 'MIND FOG',        kind: 'foe', block: 2, sap: 1, text: 'Your fire −1' },
+    dread:   { name: 'DREAD BROADCAST', kind: 'truth', power: 3, atk: 2, sap: 1, text: 'Your fire −1' },
+    triumph: { name: 'HIVE TRIUMPHANT', kind: 'truth', power: 2, heal: 4, text: '' },
   },
   // What every side's deck starts from, before worlds, sites and propaganda are added.
   baseDeck: { fed: ['volley', 'volley', 'volley', 'brace', 'brace'], swarm: ['volley', 'volley', 'rush', 'rush', 'frenzy'],

@@ -215,3 +215,7 @@ section { margin-bottom: 10px; }
 .fres { font: 700 15px var(--head); letter-spacing: 1px; margin: 4px 0 10px; text-align: center; }
 .card.t-truth em, .card.t-truth svg { color: var(--cyan); } .card.t-site { border-color: var(--amber); }
 .arow #commit { width: auto; flex: 1 1 140px; min-height: 46px; font-size: 13px; letter-spacing: 1.5px; }
+
+.trk .q { margin-left: 4px; min-width: 26px; padding: 0; }
+.tsub { margin-top: 4px; }
+.flog { min-height: 36px; }

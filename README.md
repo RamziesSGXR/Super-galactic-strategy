@@ -1,6 +1,6 @@
 # Super Galactic Strategy
 
-**Prototype 0.7.0.** Working title of the design: *Four Fronts*.
+**Prototype 0.7.1.** Working title of the design: *Four Fronts*.
 
 You are Federation High Command at the capital, Aurelia. Three enemies come at you on three war fronts: the Swarm
 in the east, the Foundry in the west, the Veil in the south. Each round you make one decision on each front, and
@@ -13,6 +13,13 @@ original: other games are inspiration, and nothing is borrowed from them.
 
 Open `index.html` through any web server (`npm start`, then http://localhost:8080). There is nothing to build.
 Add `?seed=7` to replay the same war, or `?tutorial` for the guided first rounds (also under **Unity → TUTORIAL**).
+
+## Show, not tell
+
+The game explains itself once, in the tutorial. During play the screen carries no instructions: the turn strip shows
+only which front is in play and what the enemy has just done, the bottom bar shows only what is selected and what
+can be pressed, and the battle screen shows only what each round did. The rules are behind the **?** button on the
+map, and the tutorial can be replayed from **Unity**.
 
 ## A round
 
