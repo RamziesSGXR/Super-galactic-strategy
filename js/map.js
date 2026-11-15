@@ -31,7 +31,7 @@ export function makeMap(seed = 1) {
       if (kind === 'capital' && i === 0) type = 'capital';
       else if ((kind === 'gate' || kind === 'home') && i === 0) type = 'fortress';
       else { let tot = 0; for (const k in w) tot += w[k]; let r = rnd() * tot; for (const k in w) { r -= w[k]; if (r <= 0) { type = k; break; } } }
-      out.push({ name: kind === 'capital' && i === 0 ? name : `${name} ${ROMAN[i]}`, type, size: type === 'refinery' ? 1.5 : 0.8 + rnd() * 0.5, phase: rnd() * 6.283, tint: rnd() });
+      out.push({ name: kind === 'capital' && i === 0 ? name : `${name} ${ROMAN[i]}`, type, owner: 'fed', since: 0, size: type === 'refinery' ? 1.5 : 0.8 + rnd() * 0.5, phase: rnd() * 6.283, tint: rnd() });
     }
     return out;
   };
@@ -39,7 +39,7 @@ export function makeMap(seed = 1) {
     const a = (deg + (rnd() - 0.5) * 4) * Math.PI / 180, rr = r + (rnd() - 0.5) * 0.025;
     name = name || names.pop();
     const p = { id: planets.length, name, kind, spoke, ring, x: Math.cos(a) * rr, y: Math.sin(a) * rr, adj: [], owner: 'fed',
-      bonus: 0, trait, worlds: worldsFor(kind, spoke, name) };
+      bonus: 0, trait, relic: null, relicAt: 0, worlds: worldsFor(kind, spoke, name) };
     planets.push(p); return p.id;
   };
   const link = (a, b) => { planets[a].adj.push(b); planets[b].adj.push(a); };
@@ -66,6 +66,12 @@ export function makeMap(seed = 1) {
     const a = S[k], b = S[(k + 1) % 6];
     link(a.mid[1], b.mid[0]);                                 // the inner ring road
     if (a.out) link(a.out[1], b.front); else link(a.front, b.out[0]);   // the outer ring road
+  }
+  // Relic systems: one mid system on each route keeps a rare card.
+  const relics = [...C.relic.cards];
+  for (let k = 0; k < 6; k++) {
+    const p = planets[S[k].mid[Math.floor(rnd() * 2)]];
+    p.relic = relics.splice(Math.floor(rnd() * relics.length), 1)[0]; p.relicAt = C.relic.first + k;
   }
   return { planets, home, capital: cap };
 }

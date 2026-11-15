@@ -93,3 +93,11 @@ h3 { font: 600 11px var(--head); letter-spacing: 1.5px; color: var(--dim); margi
 
 #sys { display: block; width: 100%; height: 132px; margin: 8px 0; border: 1px solid var(--empty); }
 .mis .btn.sm { min-width: 58px; padding: 4px 5px; font-size: 10.5px; letter-spacing: 0.3px; }
+
+#zoom { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 6px; }
+#zoom .btn { min-width: 40px; min-height: 40px; font-size: 18px; padding: 0; }
+.lk { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 2px 0; }
+.lk:hover { text-decoration: underline; }
+.card em { font: 9.5px var(--mono); color: var(--cyan); font-style: normal; letter-spacing: 1px; display: block; }
+.fts { gap: 4px; flex-wrap: nowrap; } .fts .bar { flex: 1; height: 5px; background: var(--fc); }
+.bar.wb { height: 4px; background: var(--fc); max-width: 160px; }

@@ -1,12 +1,21 @@
-// Draws the galactic map on a canvas: lanes, planets, announced attacks, planned operations and live battles.
+// Draws the galaxy map (lanes, star systems, announced attacks, planned operations, live battles) and the inside
+// of one star system. The map can be zoomed and dragged.
 import { C } from './config.js';
 
 const SIZE = { capital: 11, home: 9, junction: 8, gate: 7, frontier: 7, outer: 6, mid: 6 };
 const col = o => C.color[o] || C.color.fed;
 const TEXT = '#e6eadc', DIM = 'rgba(230,234,220,0.62)', GROUND = '#0b0d0c';
+const MONO = '"Share Tech Mono", ui-monospace, monospace', HEAD = '"Chakra Petch", ui-monospace, monospace';
+
+// Totals for a battle, which is a set of fights (one per world).
+export function sum(b) {
+  let P = 0, E = 0, p = 0, open = 0, won = 0;
+  for (const f of b.fights) { P += f.P; E += f.E; p += f.p; if (!f.done) open++; else if (f.win && !f.evac) won++; }
+  return { P, E, p: p / b.fights.length, open, won, n: b.fights.length };
+}
 
 export class View {
-  constructor(cv) { this.cv = cv; this.ctx = cv.getContext('2d'); this.w = this.h = 1; }
+  constructor(cv) { this.cv = cv; this.ctx = cv.getContext('2d'); this.w = this.h = 1; this.zoom = 1; this.ox = 0; this.oy = 0; }
   resize() {
     const r = this.cv.parentElement.getBoundingClientRect(), d = Math.min(2, window.devicePixelRatio || 1);
     this.w = r.width; this.h = r.height;
@@ -15,10 +24,26 @@ export class View {
     this.ctx.setTransform(d, 0, 0, d, 0, 0);
     // The map is a disc. Room is left for names at the top and the bulletin strip at the bottom.
     const topPad = 26, botPad = 44;
-    this.R = Math.max(60, Math.min((this.w - 36) / 2, (this.h - topPad - botPad) / 2) / 0.97);
-    this.cx = this.w / 2; this.cy = topPad + (this.h - topPad - botPad) / 2;
-    this.k = Math.max(0.72, Math.min(1.5, this.R / 250));
+    this.R0 = Math.max(60, Math.min((this.w - 36) / 2, (this.h - topPad - botPad) / 2) / 0.97);
+    this.cx0 = this.w / 2; this.cy0 = topPad + (this.h - topPad - botPad) / 2;
+    this._apply();
   }
+  _apply() {
+    this.zoom = Math.max(1, Math.min(4.5, this.zoom));
+    this.R = this.R0 * this.zoom;
+    const lim = this.R0 * (this.zoom - 1) + 20 * (this.zoom > 1 ? 1 : 0);
+    this.ox = Math.max(-lim, Math.min(lim, this.ox)); this.oy = Math.max(-lim, Math.min(lim, this.oy));
+    this.cx = this.cx0 + this.ox; this.cy = this.cy0 + this.oy;
+    this.k = Math.max(0.72, Math.min(1.5, this.R0 / 250)) * Math.min(1.7, Math.sqrt(this.zoom));
+  }
+  // Zoom by a factor, keeping the point under (x, y) where it is.
+  zoomAt(f, x = this.cx0, y = this.cy0) {
+    const z = Math.max(1, Math.min(4.5, this.zoom * f)), r = z / this.zoom;
+    this.ox = x - this.cx0 - (x - this.cx) * r; this.oy = y - this.cy0 - (y - this.cy) * r;
+    this.zoom = z; this._apply();
+  }
+  pan(dx, dy) { this.ox += dx; this.oy += dy; this._apply(); }
+  reset() { this.zoom = 1; this.ox = this.oy = 0; this._apply(); }
   xy(p) { return [this.cx + p.x * this.R, this.cy + p.y * this.R]; }
   pick(g, x, y) {
     let best = null, bd = 24 * 24;
@@ -33,7 +58,7 @@ export class View {
     c.beginPath(); c.moveTo(ex, ey); c.lineTo(ex - ux * 8 - uy * 4.5, ey - uy * 8 + ux * 4.5); c.lineTo(ex - ux * 8 + uy * 4.5, ey - uy * 8 - ux * 4.5); c.fill();
     if (label) {
       const mx = (sx + ex) / 2, my = (sy + ey) / 2;
-      c.font = '10px "Share Tech Mono", ui-monospace, monospace'; const tw = c.measureText(label).width + 8;
+      c.font = '10px ' + MONO; const tw = c.measureText(label).width + 8;
       c.fillStyle = 'rgba(12,16,14,0.92)'; c.fillRect(mx - tw / 2, my - 7, tw, 14);
       c.strokeStyle = color; c.lineWidth = 1; c.strokeRect(mx - tw / 2 + 0.5, my - 6.5, tw - 1, 13);
       c.fillStyle = color; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, mx, my + 0.5);
@@ -54,16 +79,20 @@ export class View {
     c.globalAlpha = 1;
     const hot = new Set();
     if (g.phase === 'plan') {
-      for (const th of g.threats) { hot.add(th.to); this.arrow(g.P[th.from], g.P[th.to], col(th.f), [5, 4], th.str.toFixed(0), rad(g.P[th.from]), rad(g.P[th.to])); }
+      for (const th of g.threats) {
+        if (th.hidden) continue; hot.add(th.to);
+        this.arrow(g.P[th.from], g.P[th.to], col(th.f), [5, 4], th.str.toFixed(0), rad(g.P[th.from]), rad(g.P[th.to]));
+      }
       for (let s = 0; s < 3; s++) {
         const o = g.ops[s]; if (!o) continue; hot.add(o.target);
         const from = g.P[o.target].adj.find(n => fl.has(n)); if (from == null) continue;
         this.arrow(g.P[from], g.P[o.target], C.color.amber, [], g.count(s) ? g.opStrength(s).toFixed(0) : '', rad(g.P[from]), rad(g.P[o.target]));
       }
     }
-    // planets
+    // star systems
     for (const p of g.P) {
       const [x, y] = this.xy(p), r = rad(p), enemy = p.owner !== 'fed', cut = !enemy && !fl.has(p.id);
+      if (x < -40 || y < -40 || x > this.w + 40 || y > this.h + 40) continue;
       c.fillStyle = GROUND; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
       if (enemy) { c.globalAlpha = 0.3; c.fillStyle = col(p.owner); c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.globalAlpha = 1; }
       c.strokeStyle = col(p.owner); c.lineWidth = 1.8; c.globalAlpha = cut ? 0.45 : 1; c.setLineDash(cut ? [3, 3] : []);
@@ -74,15 +103,16 @@ export class View {
         const F = g.F[C.factions[g.map.home.indexOf(p.id)]];
         if (F.state === 'warn') { c.strokeStyle = C.color.foundry; c.globalAlpha = 0.5 + 0.5 * Math.sin(t * 5); c.setLineDash([4, 4]); c.beginPath(); c.arc(x, y, r + 6, 0, 7); c.stroke(); c.setLineDash([]); c.globalAlpha = 1; }
       }
-      // strategic locations: a second ring (bastion), a chevron (shipyard) or a square (fuel depot)
+      // strategic locations: a second ring (bastion), a chevron (shipyard), a square (fuel depot), a dot (relic)
       c.strokeStyle = c.fillStyle = col(p.owner); c.lineWidth = 1.2;
       if (p.trait === 'bastion') { c.beginPath(); c.arc(x, y, r + 3, 0, 7); c.stroke(); }
       if (p.trait === 'shipyard') { c.beginPath(); c.moveTo(x - 4 * k, y - r - 3); c.lineTo(x, y - r - 8 * k); c.lineTo(x + 4 * k, y - r - 3); c.stroke(); }
       if (p.trait === 'depot') c.strokeRect(x - 3 * k, y - r - 9 * k, 6 * k, 6 * k);
-      // one pip for each world in the system
-      const n = p.worlds.length;
-      for (let i = 0; i < n; i++) { c.fillStyle = C.worlds[p.worlds[i].type].col; c.fillRect(x - (n * 4 - 1) / 2 + i * 4, y + r + 2.5, 3, 3); }
-      if (g.phase === 'plan' && enemy && g.canTarget(p.id)) {   // can be attacked this round
+      if (p.relic) { c.fillStyle = C.color.amber; c.beginPath(); c.arc(x + r + 2, y - r - 2, 2.2 * k, 0, 7); c.fill(); }
+      // one pip for each world, in the colour of whoever holds it
+      const n = p.worlds.length, pw = 3 * Math.min(1.5, k + 0.2);
+      for (let i = 0; i < n; i++) { c.fillStyle = col(p.worlds[i].owner); c.fillRect(x - (n * (pw + 1) - 1) / 2 + i * (pw + 1), y + r + 2.5, pw, pw); }
+      if (g.phase === 'plan' && g.canTarget(p.id, null, fl)) {   // can be attacked this round
         c.strokeStyle = C.color.amber; c.lineWidth = 1.4; const q = r + 4;
         for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { c.beginPath(); c.moveTo(x + sx * q, y + sy * (q - 4)); c.lineTo(x + sx * q, y + sy * q); c.lineTo(x + sx * (q - 4), y + sy * q); c.stroke(); }
       }
@@ -90,15 +120,15 @@ export class View {
     }
     // battles
     for (const b of g.battles) {
-      const p = g.P[b.pid], [x, y] = this.xy(p), r = rad(p) + 5; hot.add(b.pid);
+      const p = g.P[b.pid], [x, y] = this.xy(p), r = rad(p) + 5, st = sum(b); hot.add(b.pid);
       c.lineWidth = 3.5; c.strokeStyle = col(b.f); c.beginPath(); c.arc(x, y, r, 0, 7); c.stroke();
-      c.strokeStyle = col('fed'); c.beginPath(); c.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + b.p * Math.PI * 2); c.stroke();
+      c.strokeStyle = col('fed'); c.beginPath(); c.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + st.p * Math.PI * 2); c.stroke();
       if (ui.selBattle === b.id) { c.strokeStyle = C.color.amber; c.lineWidth = 1.4; c.strokeRect(x - r - 9, y - r - 9, (r + 9) * 2, (r + 9) * 2); }
-      if (b.done) {
-        const txt = b.evac ? 'RECALLED' : b.kind === 'op' ? (b.win ? 'TAKEN' : 'FAILED') : (b.win ? 'HELD' : 'LOST');
-        c.font = '600 11px "Chakra Petch", ui-monospace, monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      if (!st.open) {
+        const txt = `${st.won}/${st.n} ${b.kind === 'op' ? 'WON' : 'HELD'}`;
+        c.font = '600 11px ' + HEAD; c.textAlign = 'center'; c.textBaseline = 'middle';
         const tw = c.measureText(txt).width + 10; c.fillStyle = 'rgba(12,16,14,0.95)'; c.fillRect(x - tw / 2, y - r - 22, tw, 16);
-        c.fillStyle = b.win || b.evac ? col('fed') : C.color.foundry; c.fillText(txt, x, y - r - 14);
+        c.fillStyle = st.won * 2 > st.n ? col('fed') : st.won ? C.color.amber : C.color.foundry; c.fillText(txt, x, y - r - 14);
         continue;
       }
       // Fleet ships: the count shows each side's strength.
@@ -110,8 +140,8 @@ export class View {
           c.lineTo(sx + Math.cos(h + 2.5) * 4, sy + Math.sin(h + 2.5) * 4); c.lineTo(sx + Math.cos(h - 2.5) * 4, sy + Math.sin(h - 2.5) * 4); c.fill();
         }
       };
-      ships(Math.max(1, Math.min(9, Math.round(b.P / 3))), r + 8, 1, col('fed'));
-      ships(Math.max(1, Math.min(9, Math.round(b.E / 3))), r + 16, -1, col(b.f));
+      ships(Math.max(1, Math.min(9, Math.round(st.P / 3))), r + 8, 1, col('fed'));
+      ships(Math.max(1, Math.min(9, Math.round(st.E / 3))), r + 16, -1, col(b.f));
     }
     // names
     c.textAlign = 'center'; c.textBaseline = 'top';
@@ -119,7 +149,7 @@ export class View {
       const big = p.kind === 'capital' || p.kind === 'home';
       if (!(big || ui.sel === p.id || hot.has(p.id) || this.R > 330)) continue;
       const [x, y] = this.xy(p), r = rad(p);
-      c.font = (big ? '600 11px "Chakra Petch"' : '10px "Share Tech Mono"') + ', ui-monospace, monospace';
+      c.font = (big ? '600 11px ' + HEAD : '10px ' + MONO);
       c.fillStyle = big || ui.sel === p.id ? TEXT : DIM;
       const up = p.kind === 'home' && p.y < -0.5;
       c.fillText(p.name.toUpperCase(), x, up ? y - r - 17 : y + r + (g.battles.some(b => b.pid === p.id) ? 26 : 8));
@@ -127,21 +157,22 @@ export class View {
   }
 }
 
-// The inside of one star system: its star and its worlds, each drawn by kind, with the missions planned on them.
-export function drawSystem(cv, g, p, missions, t) {
+// The inside of one star system: its star and its worlds, each drawn by kind and ringed in its holder's colour.
+// Planned missions show as tags; during a battle each world shows its own fight.
+export function drawSystem(cv, g, p, missions, battle, t) {
   const r = cv.getBoundingClientRect(); if (!r.width) return;
   const d = Math.min(2, window.devicePixelRatio || 1);
   if (cv.width !== Math.round(r.width * d)) { cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d); }
   const c = cv.getContext('2d'), w = r.width, h = r.height, n = p.worlds.length;
   c.setTransform(d, 0, 0, d, 0, 0); c.fillStyle = '#070908'; c.fillRect(0, 0, w, h);
-  const sx = -18, sy = h * 0.5, oc = col(p.owner);
+  const sx = -18, sy = h * 0.5;
   c.fillStyle = '#f2e3a8'; c.beginPath(); c.arc(sx, sy, 44, 0, 7); c.fill();
   c.fillStyle = '#fff6d6'; c.beginPath(); c.arc(sx, sy, 34, 0, 7); c.fill();
   c.textAlign = 'center';
   p.worlds.forEach((wd, i) => {
     const orb = n === 1 ? 78 + (w - 118) / 2 : 78 + i * (w - 118) / (n - 1);
     c.strokeStyle = 'rgba(230,234,220,0.13)'; c.lineWidth = 1; c.beginPath(); c.arc(sx, sy, orb, -1.2, 1.2); c.stroke();
-    const a = Math.sin(t * 0.12 + wd.phase) * Math.min(0.4, (h * 0.13) / orb), x = sx + Math.cos(a) * orb, y = sy + 4 + Math.sin(a) * orb;
+    const a = Math.sin(t * 0.12 + wd.phase) * Math.min(0.4, (h * 0.1) / orb), x = sx + Math.cos(a) * orb, y = sy + 2 + Math.sin(a) * orb;
     const R = 9 * wd.size, T = C.worlds[wd.type];
     c.save(); c.beginPath(); c.arc(x, y, R, 0, 7); c.clip();
     c.fillStyle = T.col; c.fillRect(x - R, y - R, R * 2, R * 2);
@@ -153,14 +184,18 @@ export function drawSystem(cv, g, p, missions, t) {
     c.fillStyle = 'rgba(0,0,0,0.5)'; c.beginPath(); c.arc(x + R * 0.75, y, R * 1.05, 0, 7); c.fill();   // the night side, away from the star
     c.restore();
     if (wd.type === 'refinery') { c.strokeStyle = 'rgba(240,220,170,0.55)'; c.lineWidth = 1.4; c.beginPath(); c.ellipse(x, y, R * 1.7, R * 0.42, -0.3, 0, 7); c.stroke(); }
-    c.strokeStyle = oc; c.lineWidth = 1.2; c.beginPath(); c.arc(x, y, R + 3.5, 0, 7); c.stroke();
-    c.font = '10px "Share Tech Mono", ui-monospace, monospace'; c.fillStyle = DIM; c.textBaseline = 'top';
+    c.strokeStyle = col(wd.owner); c.lineWidth = 1.6; c.beginPath(); c.arc(x, y, R + 3.5, 0, 7); c.stroke();
+    c.font = '10px ' + MONO; c.fillStyle = DIM; c.textBaseline = 'top';
     c.fillText(wd.name.split(' ').pop().toUpperCase(), x, y + R + 8);
-    const m = missions && missions[i];
-    if (m) {
-      const txt = C.missions[m].name; c.font = '600 10px "Chakra Petch", ui-monospace, monospace';
-      const tw = c.measureText(txt).width + 8; c.fillStyle = C.color.amber; c.fillRect(x - tw / 2, y - R - 22, tw, 14);
-      c.fillStyle = '#141204'; c.textBaseline = 'middle'; c.fillText(txt, x, y - R - 14.5);
-    }
+    const tag = (txt, bg, fg) => {
+      c.font = '600 10px ' + HEAD; const tw = c.measureText(txt).width + 8;
+      c.fillStyle = bg; c.fillRect(x - tw / 2, y - R - 23, tw, 14); c.fillStyle = fg; c.textBaseline = 'middle'; c.fillText(txt, x, y - R - 15.5);
+    };
+    const f = battle && battle.fights.find(q => q.wi === i);
+    if (f) {   // this world's own fight
+      const bw = 44; c.fillStyle = col(battle.f); c.fillRect(x - bw / 2, y - R - 12, bw, 4);
+      c.fillStyle = col('fed'); c.fillRect(x - bw / 2, y - R - 12, bw * f.p, 4);
+      if (f.done) tag(f.evac ? 'RECALLED' : f.win ? (battle.kind === 'op' ? 'TAKEN' : 'HELD') : (battle.kind === 'op' ? 'REPELLED' : 'LOST'), f.win || f.evac ? col('fed') : C.color.foundry, '#0b0d0c');
+    } else if (missions && missions[i]) tag(C.missions[missions[i]].name, C.color.amber, '#141204');
   });
 }

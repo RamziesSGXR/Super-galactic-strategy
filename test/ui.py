@@ -22,17 +22,28 @@ with sync_playwright() as pw:
         pg.evaluate('document.querySelector("[data-a=mob]").click()')
         assert pg.evaluate('!!sgs.g.mob'), 'mobilise did nothing'
         pg.evaluate('document.querySelector("[data-a=op]").click()')
-        for w in range(3): pg.evaluate(f'document.querySelector("[data-a=m][data-k=siege][data-w=\\"{w}\\"]")?.click()')
+        for w in range(4): pg.evaluate(f'document.querySelector("[data-a=m][data-k=siege][data-w=\\"{w}\\"]")?.click()')
         assert pg.evaluate('sgs.g.count(0)') == 2, 'a general attack should carry two missions'
         assert pg.evaluate('!!document.getElementById("sys")'), 'no system view'
         pg.wait_for_timeout(200); pg.screenshot(path=f'{out}/{name}-1-plan.png')
         assert pg.evaluate('sgs.g.count(0)') >= 1, 'no missions were added'
         pg.click('[data-a=commit]'); pg.wait_for_timeout(1500)
         assert pg.evaluate('sgs.g.phase') == 'battle', 'no battle phase'
+        assert pg.evaluate('sgs.g.battles.every(b => b.fights.length >= 1)'), 'battles have no fights'
+        assert pg.evaluate('document.querySelectorAll("[data-bar]").length') >= 3, 'no per-world bars'
         pg.screenshot(path=f'{out}/{name}-2-battle.png')
         pg.evaluate('document.querySelector("[data-a=speed]").click()')
         pg.wait_for_function('sgs.g.phase !== "battle"', timeout=30000); pg.wait_for_timeout(300)
         pg.screenshot(path=f'{out}/{name}-3-report.png')
+        pg.click('[data-a=zin]'); pg.click('[data-a=zin]')
+        assert pg.evaluate('sgs.view.zoom') > 2, 'zoom buttons did nothing'
+        pg.mouse.move(w * 0.3, 300); pg.mouse.down(); pg.mouse.move(w * 0.3 + 60, 340, steps=4); pg.mouse.up()
+        assert pg.evaluate('sgs.view.ox') > 30, 'dragging did not move the map'
+        pg.wait_for_timeout(200); pg.screenshot(path=f'{out}/{name}-4-zoom.png')
+        # the war is saved: a reload without a seed carries on at the same round
+        rnd = pg.evaluate('sgs.g.round')
+        pg.goto('http://localhost:8080/'); pg.wait_for_timeout(500)
+        assert pg.evaluate('sgs.g.round') == rnd and pg.evaluate('sgs.g.seed') == 7, 'the saved war did not load'
         over = pg.evaluate('document.documentElement.scrollWidth > innerWidth + 1')
         assert not over, 'page is wider than the screen'
         pg.close()
