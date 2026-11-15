@@ -38,8 +38,8 @@ export function makeMap(seed = 1) {
   const add = (kind, front, ring, r, deg, name) => {
     const a = deg * Math.PI / 180; name = name || names.pop();
     const p = { id: planets.length, name, kind, front, ring, deg, x: Math.cos(a) * r, y: Math.sin(a) * r, adj: [], owner: 'fed',
-      bonus: 0, temp: 0, dev: 0, built: false, trap: null, relic: null, relicAt: 0, worlds: worldsFor(kind, front, name) };
-    // The key world: the one world in the system that is fought over, and whose kind helps shipbuilding there.
+      dev: 0, site: null, worlds: worldsFor(kind, front, name) };
+    // The key world: the one shown when a battle is fought for the system, and whose kind helps shipbuilding there.
     p.key = kind === 'capital' || kind === 'home' ? 0 : Math.floor(rnd() * p.worlds.length);
     planets.push(p); return p.id;
   };
@@ -74,12 +74,6 @@ export function makeMap(seed = 1) {
       const cross = !same && (k === 1 || k === 3);   // rings 2 and 4 always join where two fronts meet, so every pair of fronts is linked twice at least
       if (must || cross || rnd() < (same ? M.around : M.across)) link(a, b);
     }
-  }
-  // Relic systems: two on each front's third ring keep a rare card.
-  const relics = [...C.relic.cards]; let n = 0;
-  for (let fi = 0; fi < 3; fi++) {
-    const pool = rings[2].filter(id => planets[id].front === fi);
-    for (let q = 0; q < 2; q++) { const p = planets[pool.splice(Math.floor(rnd() * pool.length), 1)[0]]; p.relic = relics.splice(Math.floor(rnd() * relics.length), 1)[0]; p.relicAt = C.relic.first + n++; }
   }
   // Hops to the capital, for the enemy's sense of direction.
   const dist = planets.map(() => 99); dist[0] = 0; const q = [0];

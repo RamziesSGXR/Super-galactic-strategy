@@ -182,3 +182,36 @@ section { margin-bottom: 10px; }
 .chip.on { color: var(--amber); }
 .trk span.off { opacity: 0.4; }
 #top .rd { margin-right: auto; }
+
+/* ---------- 0.7: the decision bar, the front resources, the battle screen ---------- */
+.ro .lt { border-color: var(--lc); border-bottom-color: var(--lc); min-width: 0; }
+.ro .lt b { color: var(--lc); font-size: 14px; } .ro .lt span { font-size: 8px; }
+#top .ro { flex-wrap: wrap; gap: 6px 8px; }
+.trk { align-items: center; } .trk .btn { pointer-events: auto; min-height: 24px; min-width: 0; padding: 0 8px; font-size: 9.5px; margin-left: auto; }
+#turn { padding-right: 56px; }
+#deck { padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; }
+.arow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; min-height: 36px; font-size: 12px; }
+.arow b { font: 600 12px var(--head); letter-spacing: 1px; }
+.arow .hold { width: auto; flex: 1 1 140px; min-height: 44px; font-size: 13px; }
+.ro div { min-width: 44px; }
+#deck > .go { min-height: 46px; font-size: 12px; letter-spacing: 1px; }
+#fight { position: fixed; left: 0; right: 0; bottom: 0; top: var(--th, 70px); background: #080a09; z-index: 4; display: flex; flex-direction: column; overflow-y: auto; }
+#fight[hidden] { display: none; }
+#fbody { flex: 1; display: flex; flex-direction: column; padding: 8px 10px 12px; max-width: 760px; width: 100%; margin: 0 auto; }
+#fcoach { background: rgba(40, 36, 10, 0.9); border-bottom: 2px solid var(--amber); padding: 8px 10px; }
+#fcoach[hidden] { display: none; }
+#fcoach em { font: 600 10px var(--head); letter-spacing: 1.5px; color: var(--amber); font-style: normal; }
+#fcoach p { font-size: 12.5px; line-height: 1.4; margin: 3px 0 7px; } #fcoach p b { color: var(--amber); font-weight: normal; }
+#fcoach .cbt { display: flex; gap: 6px; flex-wrap: wrap; } #fcoach .btn.go { width: auto; flex: 1; min-height: 38px; font-size: 12px; padding: 2px 12px; } #fcoach .btn.sm { min-height: 38px; }
+.fh2 { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.fh2 b { font: 700 15px var(--head); letter-spacing: 1.5px; color: var(--amber); }
+#fc { display: block; width: 100%; flex: 1 1 180px; min-height: 150px; max-height: 300px; border: 1px solid var(--empty); }
+.hps { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.hp b { font: 700 13px var(--head); letter-spacing: 1px; } .hp .row { gap: 4px; flex-wrap: nowrap; } .hp .bar { background: var(--empty); margin-top: 3px; }
+.flog { min-height: 52px; font-size: 12px; line-height: 1.45; border-left: 2px solid var(--cyan-l); padding-left: 8px; margin-bottom: 8px; }
+.fhand { display: flex; gap: 6px; justify-content: center; }
+.fhand .card { flex: 1 1 0; width: auto; max-width: 150px; height: 138px; }
+.fhand.wait { min-height: 138px; align-items: center; }
+.fres { font: 700 15px var(--head); letter-spacing: 1px; margin: 4px 0 10px; text-align: center; }
+.card.t-truth em, .card.t-truth svg { color: var(--cyan); } .card.t-site { border-color: var(--amber); }
+.arow #commit { width: auto; flex: 1 1 140px; min-height: 46px; font-size: 13px; letter-spacing: 1.5px; }

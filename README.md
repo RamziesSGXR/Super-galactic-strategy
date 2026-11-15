@@ -1,10 +1,10 @@
 # Super Galactic Strategy
 
-**Prototype 0.6.1.** Working title of the design: *Four Fronts*.
+**Prototype 0.7.0.** Working title of the design: *Four Fronts*.
 
-You are Federation High Command at the capital, Aurelia. Three enemies come at you on three war fronts: the Foundry
-in the west, the Swarm in the east, the Veil in the south. You fight each front like its own board game, moving
-fleets one system a turn, with a deck of cards to tip the fights. Take all three enemy homes to win.
+You are Federation High Command at the capital, Aurelia. Three enemies come at you on three war fronts: the Swarm
+in the east, the Foundry in the west, the Veil in the south. Each round you make one decision on each front, and
+when fleets meet the fight is a card battle. Take all three enemy homes to win.
 
 This is the strategy layer only. It does not connect to the other games yet. Every name, picture and rule here is
 original: other games are inspiration, and nothing is borrowed from them.
@@ -14,77 +14,85 @@ original: other games are inspiration, and nothing is borrowed from them.
 Open `index.html` through any web server (`npm start`, then http://localhost:8080). There is nothing to build.
 Add `?seed=7` to replay the same war, or `?tutorial` for the guided first rounds (also under **Unity → TUTORIAL**).
 
-## How it plays
+## A round
 
-- **Fleets are your pieces.** Tap a system where you have a fleet, then tap a neighbouring system. A cyan ring
-  moves the fleet there; an amber ring attacks. A fleet moves one system a turn. Fleets in the same system fight
-  together, and can be combined or split.
-- **One front at a time.** Each round goes west, east, south. On each front you move, your attacks are fought,
-  then that enemy moves and its attacks are fought. The strip above the map shows which front is in play.
-- **Only you cross fronts.** Enemies keep to their own front and the capital. You can take a fleet from one front
-  to the next along the lanes that cross where the fronts meet, or through the capital, one system a turn.
-- **Fights.** A ship has strength 3. Your fleets against the system's own defence (2, or more with fortress
-  worlds, cards and the priority front) plus any fleet there. The loser falls back to a neighbouring system of its
-  own with half its ships, or is lost if it has nowhere to go. The winner loses a few.
-- **Build.** Tap one of your systems and build a ship (3 fuel, 3 Army, 2 Vanguard): one per system each round, and
-  it can move from the next round. A system whose key world is a refinery, forge or colony builds without fuel,
-  Army or Vanguard; a fortress world gains +1 defence per ship built, up to +3.
-- **Shields** mark your systems an enemy fleet could strike on its next turn: cyan holds, amber is even, red is
-  likely to fall.
-- **Win:** all three enemy homes taken. **Lose:** the capital falls, or two enemies strike it in the same round.
+The round goes east, west, south. On each front that is at war:
+
+1. **The map turns to that front** and closes in on it, with the enemy's home at the top. WHOLE MAP pulls back.
+2. **The enemy acts first**, once: it attacks one of your systems with a fleet, or brings a fleet up to the line.
+   An attack is a battle straight away.
+3. **You make one decision:** attack, defend, or hold.
+   - Tap one of your fleets. Amber rings are enemy systems on this front it can attack; cyan rings are systems of
+     yours on this front it can move to. Tap a ring, then confirm.
+   - A fleet may travel any distance through systems you hold that are joined by lanes, once a round. So a fleet
+     from another front can be brought across: pull back to the whole map, or pick it from the Defence list.
+4. **Building is extra** and does not use up the decision: one ship at each of your systems on that front, and
+   special sites.
+
+After the south: income, and the next round.
+
+## Battles
+
+- Each side has **hit points**: 3 for every ship, plus the system's own (2, more with fortress worlds; the capital 10).
+- Each side draws **3 cards at random from its deck**.
+- Each round you tap one card, the enemy plays one, then **every ship fires** 1. Cards add damage, stop damage,
+  repair, or weaken the other side's fire.
+- When the cards are spent, the guns decide. The first side out of hit points loses; if both are, the defender holds.
+- The loser falls back to a neighbouring system of its own with half its ships, or is lost. The winner keeps the
+  ships its remaining hit points pay for.
+
+## Your deck
+
+The deck is made of what you hold. Nothing is managed by hand.
+
+| From | Cards |
+|---|---|
+| Every fleet | Full Volley ×3, Brace ×2 |
+| Worlds: one card for every 8 worlds of a kind, up to 3 | Afterburn Run (refineries), Armoured Push (forges), Vanguard Drop (colonies), Bulwark (fortress worlds) |
+| Special sites: two cards each | Prototype Railgun (Testing Centre), Ichor Warheads (Ichor Lab), Pearl Mirror (Pearl Array) |
+| The Ministry of Truth | Victory Newsreel (you take a system), Heroes of the Line (you hold one), Not One Step Back (you lose one) |
+
+Enemy decks grow the same way, with the systems they hold. Propaganda cards are used up when played. If both sides
+play propaganda in the same round, the stronger takes the other's card and cancels it.
+
+## Front resources and special sites
+
+Each front has its own resource, won with every victory there: **ichor** in the east, **scrap parts** in the west,
+**carbon pearls** in the south (2 for taking a system, 1 for holding one, 4 for the home). Six of one buys a special
+site on a system of yours, up to two of each kind. A site is lost with its system.
 
 ## The map
 
-Five rings of systems round the capital, 64 in all, with more systems on each ring going out. Every system has a
-lane inward; only some neighbours on a ring are joined, so there are dead ends and gaps. Where two fronts meet,
-most rings are joined across (rings 2 and 4 always), so there are about nine or ten lanes between fronts. Each system has two to four worlds that pay fuel, Army or Vanguard, and one key world, shown
-in full when you open the system. A system cut off from the capital pays nothing and defends at half.
+Five rings of systems round the capital, 64 in all, with more on each ring going out. Every system has a lane inward;
+only some neighbours on a ring are joined, so there are dead ends. Where two fronts meet, most rings are joined
+across. Each system has two to four worlds that pay fuel, Army or Vanguard, which is what ships cost (3, 3 and 2;
+less where the key world is a refinery, forge or colony). A system cut off from the capital pays nothing and has
+half its hit points.
 
-## The deck
-
-You draw 5 cards a round (6 at morale 70 or more, 4 under 30) and may play them on any of your turns that round.
-Used cards go to the discard pile and come round again. A major victory offers three cards and you may add one. A
-system lost adds a Dissent card, which does nothing until the Ministry of Truth removes it.
-
-| Kind | Played on | Cards |
-|---|---|---|
-| Boost | one of your fleets | Alpha Strike, Veteran Crews, Forced March, Flanking Orders |
-| Trap | one of your systems, hidden until it is attacked | Minefield, Ambush, Decoy |
-| Order | one of your systems | Emergency Yard, Fortify |
-| Battle | a fight in progress | Fire Support, Orbital Blockade, Recall |
-| Propaganda, logistics | nothing | War Bonds Drive, Recruitment Reel, Fuel Convoy, Conscript Levy |
-| Relic | varies; spent on use | The Home Fleet, The Flagship, General Reserve, The Anthem, Strategic Reserve, Planetary Shield |
+A **shield** marks a system of yours with an enemy fleet beside it: cyan is safe, amber is close, red is likely to fall.
 
 ## The ministries
 
-The same ministries as FOB Super Commander, as a fixed row of buttons.
-
-| Ministry | What you do there |
+| Ministry | What it shows or does |
 |---|---|
-| Intelligence | The round's report, suggested actions, what needs defending, enemy strength |
-| Defence | Your fleets by front; the battle list and Secondary Order during a fight |
-| Prosperity | Stock and next round's income; exchange 3 of one resource for 2 of another |
-| Expansion | Develop a system so its worlds pay +50% a level |
-| Truth | Broadcast for morale; remove Dissent cards |
+| Intelligence | The report, suggested actions for the front in play, what needs defending |
+| Defence | Your fleets by front (tap one to pick it up), and your battle deck |
+| Prosperity | Stock, next round's income, front resources; exchange 3 of one resource for 2 of another |
+| Expansion | Build special sites; develop a system so it pays more |
+| Truth | Your propaganda cards and the enemy's. Nothing to manage |
 | Humanity | Volunteers, balanced or conscription |
-| Employment | The priority front: +1.5 defence, +25% output, ships cost 1 less fuel there |
-| Unity | The standing of the war, your deck, the log, the tutorial |
+| Employment | The priority front: +2 hit points, +25% output, ships cost 1 less fuel there |
+| Unity | The standing of the war, the log, the rules, the tutorial |
 
 ## The three enemies
 
 | Enemy | Front | Arrives | How it plays |
 |---|---|---|---|
-| The Foundry | West | about round 5 | A few heavy fleets. Waits until it is sure. |
-| The Swarm | East | round 2 | Many small fleets. Attacks at even odds. |
-| The Veil | South | about round 9 | A system's own defence counts half against it (not the capital's). |
+| The Swarm | East | round 2 | Attacks often, with small fleets. Swarm Rush, Feeding Frenzy. |
+| The Foundry | West | about round 4 | Gathers a heavy fleet before it strikes. Siege Guns, Iron Plating. |
+| The Veil | South | about round 7 | Its cards slip past your defences. Phase Strike, Mind Fog. |
 
-Each builds ships at its home every turn, moves every fleet one system toward you, and holds a deck of three cards.
-
-## Marked for change later
-
-A fight is a single bar on purpose. It is where the other games would take over: a space battle between the fleets,
-a ground battle on the key world. The hand-off point is marked `HANDOFF` at the top of `js/sim.js`; a fight needs
-only its two strengths going in and `win` coming out.
+Win by taking all three homes. Lose if the capital falls, or if two enemies strike it in the same round.
 
 ## Code
 
@@ -92,8 +100,8 @@ only its two strengths going in and `win` coming out.
 |---|---|
 | `js/config.js` | Every number and every name. Retune or rename here. |
 | `js/map.js` | The board: rings, fronts, lanes |
-| `js/sim.js` | All rules, with no screen code (`Game`) |
-| `js/view_map.js`, `js/view.js` | The galaxy map with its fleets; one planet in full view |
+| `js/sim.js` | All rules, with no screen code (`Game`): the turn, decks, battles |
+| `js/view_map.js`, `js/view.js` | The galaxy map and its camera; one planet in full view; the battle picture |
 | `js/main.js` | The interface |
 | `js/tutorial.js` | The tutorial's steps |
 | `js/bot.js` | A simple player for testing |
@@ -101,11 +109,11 @@ only its two strengths going in and `win` coming out.
 ## Checks
 
 - `npm run sim [games]` plays whole wars with no screen: the test bot, then nobody at the controls.
-  At 0.6.1, of 100 wars the simple bot wins 75 in about 30 rounds; nearly every loss is to the Veil.
-  An undefended Federation falls by about round 9.
+  At 0.7.0, of 100 wars the simple bot wins 69 in about 45 rounds. An undefended Federation falls by about round 19.
 - `python3 test/ui.py` and `python3 test/tutorial.py` (with `npm start` running) play the opening and follow the
   tutorial by tapping the map and the buttons, at phone and desktop size.
 
 ## Not built yet
 
-Sound, other languages, and any link to the other games.
+Sound, other languages, and any link to the other games. A battle is the natural place for those games to plug in:
+it needs only two fleets and a system going in, and a winner coming out.
