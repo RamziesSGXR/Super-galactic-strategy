@@ -21,7 +21,8 @@ export class Game {
       this.F[f] = { id: f, sector: s, state: 'wait', at: a.round + Math.round((this.rnd() * 2 - 1) * a.vary), force: 0, card: false, home: this.map.home[s] };
     });
     this.ops = [null, null, null];
-    this.directive = null;          // { sector, mode: 'attack' | 'defend' }
+    this.directive = null;          // { sector, mode: 'attack' | 'defend' }; sector is the front (enemy index)
+    this.mob = null;                // { s, at, until }: a front being mobilised for a major offensive
     this.threats = [];              // enemy attacks announced for the coming battle phase
     this.battles = []; this.bid = 0;
     this.retal = [false, false, false];
@@ -47,10 +48,19 @@ export class Game {
     const p = this.P[pid]; if (!p || p.owner === 'fed') return false;
     const fl = this.fedLinked(); return p.adj.some(n => fl.has(n));
   }
-  targets(s) { return this.P.filter(p => p.sector === s && this.canTarget(p.id)).map(p => p.id); }
+  targets(s) { return this.P.filter(p => p.owner === C.factions[s] && this.canTarget(p.id)).map(p => p.id); }
+  // A system's own defence when the Federation holds it.
+  fort(p) {
+    let v = C.fort[p.kind] + p.bonus + (p.trait === 'bastion' ? C.traits.bastion.fort : 0);
+    for (const w of p.worlds) v += C.worlds[w.type].fort || 0;
+    return v;
+  }
+  // A linked Federation neighbour of this system with the given strategic trait.
+  near(pid, trait, fl = this.fedLinked()) { return this.P[pid].adj.some(n => fl.has(n) && this.P[n].trait === trait); }
   garrison(pid) {
     const p = this.P[pid], f = p.owner; if (f === 'fed') return 0;
-    let g = C.garr.base + C.garr.ring * p.ring + this.F[f].force * C.garr.force;
+    let g = C.garr.base + C.garr.ring * p.ring + this.F[f].force * C.garr.force + (p.trait === 'bastion' ? C.traits.bastion.fort : 0);
+    for (const w of p.worlds) if (w.type === 'fortress') g += C.garr.fortress;
     // The home is fed by every world the enemy holds: roll back the branches before going for the trunk.
     if (p.kind === 'home') g = (g + C.garr.perPlanet * this.P.filter(q => q.owner === f).length) * C.garr.home;
     if (!this.facLinked(f).has(pid)) g *= C.cut;
@@ -62,19 +72,26 @@ export class Game {
   }
 
   // ---------- your orders ----------
+  // An operation is a list of missions, at most one per world in the target system.
   setTarget(s, pid) {
     if (this.phase !== 'plan') return false;
     if (pid == null) { this.ops[s] = null; return true; }
-    if (!this.canTarget(pid) || this.P[pid].sector !== s) return false;
-    this.ops[s] = { target: pid, m: { assault: 0, siege: 0, sabotage: 0 } };
+    if (!this.canTarget(pid) || this.P[pid].owner !== C.factions[s]) return false;
+    this.ops[s] = { target: pid, m: {} };
     return true;
   }
-  count(s) { const o = this.ops[s]; return o ? o.m.assault + o.m.siege + o.m.sabotage : 0; }
+  count(s) { const o = this.ops[s]; return o ? Object.keys(o.m).length : 0; }
+  major(s) { const d = this.directive; return !!(d && d.mode === 'attack' && d.sector === s); }
+  opCap(s) { const o = this.ops[s]; return o ? Math.min(this.P[o.target].worlds.length, this.major(s) ? C.op.major : C.op.general) : 0; }
+  fuelFor(pid) {
+    const v = C.op.fuel + C.op.fuelRing * this.P[pid].ring;
+    return this.near(pid, 'depot') ? Math.max(1, v - C.traits.depot.fuel) : v;
+  }
   cost(s) {
     const o = this.ops[s], c = { fuel: 0, drop: 0, army: 0 };
     if (!o || !this.count(s) || this.retal[s]) return c;
-    c.fuel = C.op.fuel + C.op.fuelRing * this.P[o.target].ring;
-    for (const k in o.m) { c.drop += C.missions[k].drop * o.m[k]; c.army += C.missions[k].army * o.m[k]; }
+    c.fuel = this.fuelFor(o.target);
+    for (const k of Object.values(o.m)) { c.drop += C.missions[k].drop; c.army += C.missions[k].army; }
     return c;
   }
   totalCost() {
@@ -83,30 +100,59 @@ export class Game {
     return t;
   }
   affordable() { const t = this.totalCost(); return t.fuel <= this.res.fuel && t.drop <= this.res.drop && t.army <= this.res.army; }
-  addMission(s, k, d = 1) {
-    const o = this.ops[s]; if (!o || this.phase !== 'plan') return false;
-    o.m[k] += d;
-    if (o.m[k] < 0 || this.count(s) > C.op.max || !this.affordable()) { o.m[k] -= d; return false; }
+  // Put mission k on world wi of the target system. The same mission again, or null, takes it off.
+  setMission(s, wi, k) {
+    const o = this.ops[s]; if (!o || this.phase !== 'plan' || !this.P[o.target].worlds[wi]) return false;
+    const prev = o.m[wi];
+    if (k == null || prev === k) { delete o.m[wi]; return true; }
+    o.m[wi] = k;
+    if (this.count(s) > this.opCap(s) || !this.affordable()) { if (prev) o.m[wi] = prev; else delete o.m[wi]; return false; }
     return true;
+  }
+  missionStr(pid, wi, k) {
+    const p = this.P[pid];
+    return C.missions[k].str * (1 + (C.weak[p.owner] === k ? C.weakAdd : 0) + (C.worlds[p.worlds[wi].type].fav === k ? C.favAdd : 0));
   }
   opStrength(s) {
     const o = this.ops[s]; if (!o || !this.count(s)) return 0;
-    const f = this.P[o.target].owner; let v = 0;
-    for (const k in o.m) v += o.m[k] * C.missions[k].str * (C.weak[f] === k ? C.weakMult : 1);
+    let v = 0;
+    for (const wi in o.m) v += this.missionStr(o.target, +wi, o.m[wi]);
     v *= 1 - C.reach * (this.P[o.target].ring - 1);
+    if (this.near(o.target, 'shipyard')) v *= C.traits.shipyard.mult;
     const d = this.directive;
     if (d) v *= d.mode === 'attack' ? (d.sector === s ? C.dir.boost : 1) : C.dir.drain;
     if (this.retal[s]) v += C.retal;
     return v;
   }
+  // Mobilisation: a major offensive (the attack directive) has to be prepared a round ahead.
+  mobilise(s) {
+    if (this.phase !== 'plan' || this.F[C.factions[s]].state !== 'active' || (this.mob && this.mob.s === s)) return false;
+    if (this.res.fuel - this.totalCost().fuel < C.mob.fuel) return false;
+    this.res.fuel -= C.mob.fuel;
+    this.mob = { s, at: this.round + 1, until: this.round + C.mob.last };
+    if (this.directive && this.directive.mode === 'attack') { this.directive = null; this._trim(); }
+    return true;
+  }
+  mobReady(s) { return !!(this.mob && this.mob.s === s && this.round >= this.mob.at); }
   setDirective(sector, mode) {
-    if (this.phase !== 'plan') return;
+    if (this.phase !== 'plan') return false;
     const d = this.directive;
-    this.directive = sector == null || (d && d.sector === sector && d.mode === mode) ? null : { sector, mode };
+    if (sector == null || (d && d.sector === sector && d.mode === mode)) this.directive = null;
+    else {
+      if (mode === 'attack' && !this.mobReady(sector)) return false;
+      // A defence directive needs something to defend: an attack announced on that front.
+      if (mode === 'defend' && !this.threats.some(t => t.s === sector)) return false;
+      this.directive = { sector, mode };
+    }
+    this._trim(); return true;
+  }
+  // Without the offensive, an operation falls back to the size of a general attack.
+  _trim() {
+    for (let s = 0; s < 3; s++) { const o = this.ops[s]; if (!o) continue; const ks = Object.keys(o.m); while (ks.length > this.opCap(s)) delete o.m[ks.pop()]; }
   }
   // The automatic defence of a threatened planet: its own forts, plus Army sent if a lane still reaches it.
   defence(t, army = this.res.army, fl = this.fedLinked()) {
-    const p = this.P[t.to]; let D = p.fort, n = 0;
+    const p = this.P[t.to]; let D = this.fort(p), n = 0;
     if (fl.has(t.to)) {
       n = clamp(Math.ceil((t.str * C.def.margin - D) / C.def.perArmy), 0, Math.min(Math.floor(army), C.def.max));
       D += n * C.def.perArmy;
@@ -136,7 +182,7 @@ export class Game {
     } else if (id === 'bonds') this.morale = clamp(this.morale + 12, 0, 100);
     else if (id === 'broadcast') this.res.drop = Math.min(C.resMax, this.res.drop + 4);
     else if (id === 'convoy') this.res.fuel = Math.min(C.resMax, this.res.fuel + 6);
-    else if (id === 'fortify') { const p = this.P[target]; if (!p || p.owner !== 'fed') return false; p.fort += 4; }
+    else if (id === 'fortify') { const p = this.P[target]; if (!p || p.owner !== 'fed') return false; p.bonus += 4; }
     this.hand.splice(i, 1);
     return true;
   }
@@ -167,10 +213,12 @@ export class Game {
     }
     live.sort((a, b) => this.P[a.to].ring - this.P[b.to].ring);
     for (const t of live) {
+      if (this.P[t.to].owner !== 'fed') continue;   // only worlds the Federation holds are ever defended
       const { D, n } = this.defence(t, this.res.army, fl);
       this.res.army -= n;
       this.battles.push({ id: ++this.bid, kind: 'def', s: t.s, f: t.f, pid: t.to, from: t.from, P: D, E: t.str, p: 0.5, t: 0, done: false, paid: { drop: 0, army: n } });
     }
+    if (this.directive && this.directive.mode === 'attack') this.mob = null;   // the offensive is spent
     this.threats = []; this.phase = 'battle';
     if (!this.battles.length) this._resolve();
   }
@@ -201,9 +249,9 @@ export class Game {
           this.morale += C.mor.off;
           if (b.f === 'foundry') this.res.army = Math.min(C.resMax, this.res.army + C.scrap);
           if (p.kind === 'home') { this._kill(b.f); continue; }
-          p.owner = 'fed'; p.fort = C.fort.retaken;
+          p.owner = 'fed'; p.bonus = 0;
           this.say('good', `${p.name} retaken from ${fn}.`);
-          if (b.dir || p.kind === 'junction' || p.kind === 'staging') this.draw('major victory');
+          if (b.dir || p.kind === 'junction' || p.trait) this.draw('major victory');
         } else {
           this.stats.opsLost++; this.morale -= C.mor.offLoss;
           this.say('bad', `Operation on ${p.name} failed.`);
@@ -218,12 +266,14 @@ export class Game {
         p.owner = b.f; this.stats.fallen++; this.morale -= C.mor.defLoss;
         F.force += b.E * C.winBack;
         this.say('bad', `${p.name} fell to ${fn}.`);
+        p.bonus = 0;
         if (p.kind === 'gate' || p.kind === 'junction') this._enemyCard(b.f);
       }
     }
     this.battles = []; this.ops = [null, null, null]; this.directive = null; this.secondary = true;
     const hadRetal = this.retal; this.retal = [false, false, false];
     this.round++;
+    if (this.mob && this.round > this.mob.until) { this.mob = null; this.say('warn', 'The mobilisation has stood down. The offensive was never launched.'); }
     this._arrivals();
     for (const f of C.factions) this._enemyTurn(f);
     this._income();
@@ -235,7 +285,8 @@ export class Game {
 
   _kill(f) {
     const F = this.F[f]; F.state = 'dead'; F.force = 0;
-    for (const p of this.P) if (p.owner === f) { p.owner = 'fed'; p.fort = C.fort.retaken; }
+    for (const p of this.P) if (p.owner === f) { p.owner = 'fed'; p.bonus = 0; }
+    if (this.mob && this.mob.s === F.sector) this.mob = null;
     this.threats = this.threats.filter(t => t.f !== f);
     this.morale += C.mor.kill;
     this.say('good', `${N.homes[F.sector]} is taken. ${N.factions[f]} is wiped from the map.`);
@@ -255,10 +306,9 @@ export class Game {
         // They burst in: the home and the staging worlds beside it fall at once.
         for (const n of this.P[F.home].adj) {
           this.P[n].owner = f;
-          const beyond = this.P[n].adj.filter(m => this.P[m].kind === 'mid');
-          this.P[beyond[Math.floor(this.rnd() * beyond.length)]].owner = f;
+          for (const m of this.P[n].adj) if (this.P[m].kind === 'mid') this.P[m].owner = f;
         }
-        this.say('bad', `${N.factions[f]} has taken ${N.homes[F.sector]} and four worlds around it.`);
+        this.say('bad', `${N.factions[f]} has taken ${N.homes[F.sector]} and four systems around it.`);
       }
     }
   }
@@ -287,12 +337,13 @@ export class Game {
     } else if (f === 'foundry') {   // builds up, then one heavy blow at the weakest point
       if (F.force < c.hold) return;
       const fl = this.fedLinked();
-      near.sort((a, b) => (this.P[a].fort * (fl.has(a) ? 1 : C.cut) + this.P[a].ring * 0.1) - (this.P[b].fort * (fl.has(b) ? 1 : C.cut) + this.P[b].ring * 0.1));
+      const soft = id => this.fort(this.P[id]) * (fl.has(id) ? 1 : C.cut) + this.P[id].ring * 0.1;
+      near.sort((a, b) => soft(a) - soft(b));
       picks = near.slice(0, 1);
     } else {                        // slips behind the line: may strike one planet past the front
       const deep = [];
       for (const n of near) for (const m of this.P[n].adj) {
-        if (m !== 0 && this.P[m].owner === 'fed' && this.P[m].sector === F.sector && !cand.has(m)) { cand.set(m, cand.get(n)); deep.push(m); }
+        if (m !== 0 && this.P[m].owner === 'fed' && !cand.has(m)) { cand.set(m, cand.get(n)); deep.push(m); }
       }
       let n = Math.min(c.targets, cand.size);
       while (n > 1 && F.force * c.spend / n < c.minStr) n--;
@@ -319,8 +370,7 @@ export class Game {
     for (const p of this.P) {
       if (p.owner !== 'fed') { minRing = Math.min(minRing, p.ring); if (p.owner === 'veil') veil++; continue; }
       if (p.id === 0 || !fl.has(p.id)) continue;
-      const k = C.sectorRes[p.sector];
-      r[k] += C.yield[p.kind] * (k === 'drop' ? mf * 0.6 : 1);
+      for (const w of p.worlds) { const t = C.worlds[w.type]; if (t.res) r[t.res] += t.y * (t.res === 'drop' ? mf : 1); }
     }
     // Vanguard show up for a cause: more as the enemy nears the capital, more behind an attack directive.
     r.drop += Math.max(0, 3 - minRing) * C.rally + (this.rnd() - 0.5);

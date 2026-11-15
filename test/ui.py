@@ -17,12 +17,14 @@ with sync_playwright() as pw:
         assert pg.evaluate('sgs.g.round') == 2, 'round did not advance'
         # round 2: the first enemy is on the map. Plan an operation on the first world in reach.
         tgt = pg.evaluate('sgs.g.targets(0)[0]')
-        box = pg.evaluate(f'(()=>{{const v=sgs.g.P[{tgt}];return null}})()')
         pg.evaluate(f'sgs.ui.sel={tgt}'); pg.click('[data-a=log]'); pg.click('[data-a=close]')   # any click redraws
-        pg.evaluate('document.querySelector("[data-a=dir]").click()')
-        pg.wait_for_timeout(100)
+        assert not pg.query_selector('[data-a=dir][data-m=attack]'), 'offensive offered before mobilising'
+        pg.evaluate('document.querySelector("[data-a=mob]").click()')
+        assert pg.evaluate('!!sgs.g.mob'), 'mobilise did nothing'
         pg.evaluate('document.querySelector("[data-a=op]").click()')
-        for _ in range(3): pg.evaluate('document.querySelector("[data-a=m][data-k=siege][data-d=\\"1\\"]").click()')
+        for w in range(3): pg.evaluate(f'document.querySelector("[data-a=m][data-k=siege][data-w=\\"{w}\\"]")?.click()')
+        assert pg.evaluate('sgs.g.count(0)') == 2, 'a general attack should carry two missions'
+        assert pg.evaluate('!!document.getElementById("sys")'), 'no system view'
         pg.wait_for_timeout(200); pg.screenshot(path=f'{out}/{name}-1-plan.png')
         assert pg.evaluate('sgs.g.count(0)') >= 1, 'no missions were added'
         pg.click('[data-a=commit]'); pg.wait_for_timeout(1500)
