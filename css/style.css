@@ -33,27 +33,45 @@ section { margin-bottom: 10px; }
 .ro span { font-size: 9.5px; color: var(--dim); letter-spacing: 0.5px; }
 
 #main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-#stage { position: relative; flex: 1 1 50%; min-height: 0; }
+#stage { position: relative; flex: 1 1 auto; min-height: 0; }
 #map { display: block; touch-action: none; }
 #bulletin { position: absolute; left: 0; right: 0; bottom: 0; background: var(--strip); border: 0; border-top: 1px solid var(--amber-l);
   padding: 5px 10px; text-align: left; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #bulletin.bad { color: var(--red); } #bulletin.good { color: var(--cyan); } #bulletin.warn { color: var(--amber); }
-#zoom { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 6px; }
+#zoom { position: absolute; right: 8px; top: 6px; z-index: 1; display: flex; flex-direction: column; gap: 6px; }
 #zoom .btn { min-width: 40px; min-height: 40px; font-size: 18px; padding: 0; }
-#side { flex: 1 1 50%; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--cyan-l); }
-#tabs { display: flex; overflow-x: auto; flex: 0 0 auto; border-bottom: 1px solid var(--empty); scrollbar-width: none; }
-#tabs::-webkit-scrollbar, #hand::-webkit-scrollbar { display: none; }
-.tab { flex: 0 0 auto; background: none; border: 0; border-bottom: 2px solid transparent; padding: 0 10px; min-height: 40px;
-  font: 600 10.5px var(--head); letter-spacing: 1px; color: var(--dim); }
-.tab.on { color: var(--amber); border-bottom-color: var(--amber); }
-.tab i { font: 10px var(--mono); font-style: normal; color: var(--red); margin-left: 4px; }
-#panel { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 10px 12px; }
+/* On a phone the map and the hand fill the screen. A ministry or a system opens as a sheet over the lower map. */
+#side { position: fixed; left: 0; right: 0; bottom: var(--dh, 220px); max-height: 42dvh; display: none; flex-direction: column;
+  background: #0b0d0c; border-top: 2px solid var(--amber); z-index: 3; }
+#side.open { display: flex; }
+#panel { flex: 1; min-height: 0; overflow-y: auto; padding: 0 10px 12px; }
+.sh { position: sticky; top: 0; background: #0b0d0c; display: flex; justify-content: space-between; align-items: center; padding: 6px 0; margin-bottom: 4px; z-index: 1; }
+.sh b { font: 700 13px var(--head); letter-spacing: 1.5px; color: var(--amber); }
+.sh .btn { min-width: 40px; min-height: 34px; font-size: 16px; padding: 0; }
+/* the eight ministries: one row, always on screen */
+#mins { flex: 0 0 auto; display: grid; grid-template-columns: repeat(8, 1fr); border-top: 1px solid var(--cyan-l); background: var(--strip); }
+.min { position: relative; background: none; border: 0; border-top: 2px solid transparent; padding: 5px 0 4px; min-height: 48px; display: flex; flex-direction: column;
+  align-items: center; gap: 2px; color: var(--dim); }
+.min svg { width: 20px; height: 20px; }
+.min span { font: 600 7.5px var(--head); letter-spacing: 0.3px; }
+.min.on { color: var(--amber); border-top-color: var(--amber); background: rgba(40, 36, 10, 0.6); }
+.min i { position: absolute; top: 3px; right: 50%; margin-right: -18px; font: 9px var(--mono); font-style: normal; color: #0b0d0c; background: var(--red); min-width: 13px; height: 13px; line-height: 13px; text-align: center; }
+/* whose turn it is */
+#turn { position: absolute; left: 0; right: 0; top: 0; padding: 5px 56px 5px 8px; background: var(--strip); border-bottom: 1px solid var(--empty); pointer-events: none; }
+#turn .btn { pointer-events: auto; min-height: 26px; padding: 0 8px; margin-left: 6px; }
+.trk { display: flex; gap: 4px; flex-wrap: wrap; }
+.trk span { --tc: var(--amber); font: 600 9.5px var(--head); letter-spacing: 1px; color: var(--dim); border: 1px solid var(--empty); padding: 2px 6px; }
+.trk span.on { color: #0b0d0c; background: var(--tc); border-color: var(--tc); }
+.tsub { font-size: 11.5px; margin-top: 4px; min-height: 16px; }
+.tsub b { font-weight: normal; }
 @media (min-width: 900px) and (min-aspect-ratio: 5/4) {
   #main { flex-direction: row; }
   #stage { flex: 1; }
-  #side { flex: 0 0 400px; border-top: 0; border-left: 1px solid var(--cyan-l); }
-  #tabs { flex-wrap: wrap; }
-  .tab { min-height: 34px; }
+  #side { position: static; display: flex; flex: 0 0 400px; max-height: none; border-top: 0; border-left: 1px solid var(--cyan-l); }
+  .sh .btn { display: none; }
+  .min { flex-direction: row; justify-content: center; gap: 6px; min-height: 40px; }
+  .min span { font-size: 10.5px; letter-spacing: 1px; }
+  .min i { position: static; margin: 0; }
 }
 
 .plate { background-color: var(--plate); border: 1px solid var(--cyan-l); clip-path: var(--cut); padding: 8px 10px;
@@ -103,7 +121,7 @@ section { margin-bottom: 10px; }
 .tb { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 4px; }
 .tb th { font: 9.5px var(--mono); color: var(--dim); text-align: right; padding: 2px 4px; font-weight: normal; }
 .tb td { text-align: right; padding: 4px; border-top: 1px solid var(--empty); } .tb td:first-child { text-align: left; color: var(--dim); }
-#sys { display: block; width: 100%; height: 132px; margin: 8px 0; border: 1px solid var(--empty); }
+#sys { display: block; width: 100%; height: 150px; margin: 8px 0; border: 1px solid var(--empty); }
 
 /* ---------- the hand ---------- */
 #deck { flex: 0 0 auto; background: var(--strip); border-top: 1px solid var(--amber-l); }
@@ -145,7 +163,7 @@ section { margin-bottom: 10px; }
 @media (max-height: 760px) { .card { height: 112px; } .card .tx { display: none; } }
 
 /* ---------- the tutorial coach: sits above the ministry tabs, so the map stays clear ---------- */
-#coach { flex: 0 0 auto; background: rgba(40, 36, 10, 0.55); border-bottom: 2px solid var(--amber); padding: 8px 10px; }
+#coach { flex: 0 0 auto; background: rgba(40, 36, 10, 0.9); border-top: 2px solid var(--amber); padding: 8px 10px; }
 #coach[hidden] { display: none; }
 #coach em { font: 600 10px var(--head); letter-spacing: 1.5px; color: var(--amber); font-style: normal; }
 #coach p { font-size: 12.5px; line-height: 1.4; margin: 3px 0 7px; }

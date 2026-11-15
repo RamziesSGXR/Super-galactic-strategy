@@ -16,6 +16,7 @@ with sync_playwright() as pw:
         for _ in range(60):
             i = js('sgs.ui.tut')
             if i is None: break
+            if js('!!sgs.ui.reveal'): pg.click('[data-a=skip]'); pg.wait_for_timeout(150); continue
             if i not in seen:
                 seen.append(i)
                 assert pg.is_visible('#coach'), f'no coach at step {i}'

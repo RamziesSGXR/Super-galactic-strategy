@@ -526,11 +526,12 @@ export class Game {
   }
 
   _enemyTurn(f) {
-    const F = this.F[f], c = C.enemy[f]; if (F.state !== 'active') return;
+    const F = this.F[f], c = C.enemy[f]; F.played = null; if (F.state !== 'active') return;
     F.force += c.grow + this.P.filter(p => p.owner === f).length * c.per + this.round * c.ramp;
     let mult = 1, bonus = 0, deepOk = f === 'veil', hidden = false;
     const card = F.cards.shift();
     if (card) {
+      F.played = card;   // shown when its turn is replayed on the map
       const cd = C.enemyCards[f][card];
       this.say('bad', `${N.factions[f]} plays ${cd.name}: ${cd.text}.`);
       if (card === 'frenzy') mult = C.frenzy;

@@ -1,6 +1,6 @@
 # Super Galactic Strategy
 
-**Prototype 0.4.1.** Working title of the design: *Four Fronts*.
+**Prototype 0.5.0.** Working title of the design: *Four Fronts*.
 
 You are Federation High Command at the capital, Aurelia. Three enemies arrive one after another, each down its own
 lanes, and they never fight each other. Hold the centre, then take all three enemy homes.
@@ -17,6 +17,19 @@ On GitHub Pages, serve the repository root. Add `?seed=7` to replay the same war
 
 A strategic deck-builder. Each round you draw a hand of cards, play missions onto the map, and give the rest of your
 orders through the ministries. Then every battle runs at once, the enemies take their turn, and you draw again.
+
+## Reading the screen
+
+- **Whose turn it is** is the strip across the top of the map: YOUR TURN, BATTLE, then each enemy by name. The one
+  in play is lit, with a line under it saying what is happening.
+- **Fleets are the pieces.** An enemy fleet on a lane, with its strength under it, is an attack arriving this round.
+  Your own fleet gathers beside a system when you play mission cards on it. When you commit, the fleets fly in and
+  fight. After the battles, each enemy's turn is replayed: it plays its card, and its fleets set out from its home.
+- **With a card in hand**, every system it can be played on is ringed.
+- **Tap a system** to see its key planet in full view, with any waiting fleets, its garrison, or the fight itself.
+  This is flavour: the war is decided on the map.
+- **The eight ministries** are a fixed row of buttons above your hand. On a phone each opens as a sheet over the
+  lower part of the map and closes with the ×, or by tapping its button again.
 
 ## Tutorial
 

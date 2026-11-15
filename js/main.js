@@ -2,13 +2,13 @@
 // All game rules are in sim.js.
 import { C, VERSION } from './config.js';
 import { Game } from './sim.js';
-import { View, drawSystem, sum } from './view.js';
+import { View, drawPlanet, sum } from './view.js';
 import { STEPS, SEED } from './tutorial.js';
 
 const $ = id => document.getElementById(id), N = C.names;
 const KIND = { capital: 'CAPITAL SYSTEM', gate: 'GATE SYSTEM', junction: 'JUNCTION', mid: 'SYSTEM', outer: 'OUTER SYSTEM', frontier: 'FRONTIER SYSTEM', home: 'ENEMY HOME' };
 const RES = { fuel: N.fuel, drop: N.drop, army: N.army }, RS = { fuel: 'F', drop: 'V', army: 'A' };
-const TABS = ['sys', 'int', 'def', 'pro', 'exp', 'tru', 'hum', 'emp', 'uni'];
+const TABS = ['int', 'def', 'pro', 'exp', 'tru', 'hum', 'emp', 'uni'];
 const SAVE = 'sgs.save4';
 const f1 = v => (Math.round(v * 10) / 10).toString();
 const esc = s => String(s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
@@ -20,11 +20,18 @@ const ICON = {
   battle: '<circle cx="12" cy="12" r="6"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6"/>', propaganda: '<path d="M4 10v4h3l8 5V5L7 10zM18 9c1.5 1.5 1.5 4.5 0 6"/>',
   logistics: '<path d="M4 8l8-4 8 4v8l-8 4-8-4zM4 8l8 4 8-4M12 12v8"/>', dissent: '<path d="M5 5l14 14M19 5L5 19"/>', relic: '<path d="M12 3l9 9-9 9-9-9z"/>',
 };
+// One icon per ministry.
+const MICON = {
+  int: '<path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/>', def: ICON.order, pro: ICON.logistics,
+  exp: '<path d="M4 20l6-6 4 4 6-9M14 9h6v6"/>', tru: ICON.propaganda, hum: '<circle cx="12" cy="8" r="3.5"/><path d="M5 21c0-4.5 3-7 7-7s7 2.5 7 7"/>',
+  emp: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>', uni: '<path d="M6 21V4h12l-3 4 3 4H6"/>',
+};
+const svg = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square">${d}</svg>`;
 const icon = c => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square">${ICON[c.type === 'mission' ? c.fam : c.type]}</svg>`;
 
 let g, view = new View($('map'));
-const ui = { sel: null, selBattle: null, card: null, tab: 'int', speed: 1, mark: 0, tut: null, hint: null };
-window.sgs = { get g() { return g; }, ui, view };   // for the browser checks
+const ui = { sel: null, selBattle: null, card: null, tab: 'int', open: false, speed: 1, mark: 0, tut: null, hint: null, reveal: null, valid: null };
+window.sgs = { get g() { return g; }, ui, view, refresh: () => refresh() };   // for the browser checks
 
 function odds(P, E) {
   const r = P / Math.max(0.01, E);
@@ -34,7 +41,7 @@ const routeName = k => { const end = g.P.find(p => p.spoke === k && (p.kind === 
 
 function start(seed, saved, tutorial) {
   g = (saved && Game.load(saved)) || new Game(seed || (Date.now() % 100000));
-  Object.assign(ui, { sel: null, selBattle: null, card: null, tab: 'int', mark: Math.max(0, g.log.length - 6), tut: tutorial ? 0 : null, hint: null });
+  Object.assign(ui, { sel: null, selBattle: null, card: null, tab: 'int', mark: Math.max(0, g.log.length - 6), tut: tutorial ? 0 : null, hint: null, open: false, reveal: null, valid: null });
   tutStep = -1;
   if (view.R0) view.reset();
   refresh();
@@ -56,7 +63,7 @@ function top() {
 }
 
 // ---------- the ministries ----------
-const head = k => `<div class="mh"><b>MINISTRY OF ${C.ministries[k].name}</b><span>${C.ministries[k].does}</span></div>`;
+const head = k => `<div class="mh"><span>${C.ministries[k].does}</span></div>`;
 const shield = cl => `<svg class="shd ${cl}" viewBox="0 0 14 16"><path d="M1 1h12v8l-6 6-6-6z"/></svg>`;
 
 function threatLine(t) {
@@ -93,7 +100,7 @@ function tabSys() {
   p.worlds.forEach((w, i) => {
     const T = C.worlds[w.type], key = i === p.key;
     h += `<div class="mis"><div><b style="color:${T.col}">${esc(w.name)}</b> <span class="sm2 dim">${T.name}${T.res ? ` · +${T.y} ${RES[T.res]}` : T.fort ? ` · +${T.fort} DEFENCE` : ''}</span>` +
-      (key ? `<div class="sm2 am">KEY WORLD: the fight for the system happens here${T.fav ? `. Suits ${T.fav.toUpperCase()} missions` : ''}.</div>` : '') + '</div><span></span></div>';
+      (key ? `<div class="sm2 am">KEY WORLD, shown above: the fight for the system happens here${T.fav ? `. Suits ${T.fav.toUpperCase()} missions` : ''}.</div>` : '') + '</div><span></span></div>';
   });
   return h + '</section>';
 }
@@ -225,9 +232,52 @@ function tabUni() {
 const TAB = { sys: tabSys, int: tabInt, def: tabDef, pro: tabPro, exp: tabExp, tru: tabTru, hum: tabHum, emp: tabEmp, uni: tabUni };
 function side() {
   const adv = g.phase === 'plan' ? g.advice().filter(a => a.kind === 'bad' || a.kind === 'warn').length : 0, dis = g.deckCount('dissent');
-  $('tabs').innerHTML = TABS.map(k => `<button class="tab${ui.tab === k ? ' on' : ''}" data-a="tab" data-t="${k}">${k === 'sys' ? 'SYSTEM' : C.ministries[k].name}` +
-    (k === 'int' && adv ? `<i>${adv}</i>` : k === 'tru' && dis ? `<i>${dis}</i>` : '') + '</button>').join('');
-  $('panel').innerHTML = TAB[ui.tab]();
+  const dot = { int: adv, tru: dis, def: g.mob && g.mobReady(g.mob.s) && !g.directive ? 1 : 0 };
+  // The eight ministries: always on screen, never scrolled.
+  $('mins').innerHTML = TABS.map(k => `<button class="min${ui.open && ui.tab === k ? ' on' : ''}" data-a="tab" data-t="${k}">${svg(MICON[k])}<span>${C.ministries[k].short}</span>${dot[k] ? `<i>${dot[k]}</i>` : ''}</button>`).join('');
+  $('side').classList.toggle('open', ui.open);
+  const p = g.P[ui.sel];
+  $('panel').innerHTML = `<div class="sh"><b>${ui.tab === 'sys' ? (p ? esc(p.name.toUpperCase()) : 'SYSTEM') : 'MINISTRY OF ' + C.ministries[ui.tab].name}</b><button class="plate btn sm" data-a="shut" aria-label="Close">×</button></div>` + TAB[ui.tab]();
+}
+
+// ---------- whose turn it is ----------
+// The strip across the top of the map: you, the battles, then each enemy in turn. The one in play is lit.
+function turnbar() {
+  const act = C.factions.filter(f => g.F[f].state === 'active'), rv = ui.reveal, cur = rv ? rv.q[rv.i] : null;
+  const step = (label, on, color) => `<span class="${on ? 'on' : ''}"${color ? ` style="--tc:${color}"` : ''}>${label}</span>`;
+  let h = '<div class="trk">' + step('YOUR TURN', !rv && g.phase === 'plan') + step('BATTLE', g.phase === 'battle') +
+    act.map(f => step(N.factions[f].replace('The ', '').toUpperCase(), cur && cur.f === f, C.color[f])).join('') + '</div>';
+  let sub = '';
+  if (g.phase === 'over') sub = 'The war is over.';
+  else if (cur) sub = `<b style="color:${C.color[cur.f]}">${N.factions[cur.f].toUpperCase()}'S TURN.</b> ${cur.text}`;
+  else if (g.phase === 'battle') sub = '<b class="cy">THE FLEETS MEET.</b> Tap a fight, then a battle card, to help it.';
+  else sub = ui.card != null ? '<b class="am">YOUR TURN.</b> Tap a ringed system to play the card there.' : `<b class="am">YOUR TURN.</b> Play cards onto the map, then ${[0, 1, 2].some(s => g.count(s)) || g.threats.length ? 'COMMIT ORDERS' : 'END ROUND'}.`;
+  $('turn').innerHTML = h + `<div class="tsub">${sub}${rv ? ' <button class="plate btn sm" data-a="skip">SKIP</button>' : ''}</div>`;
+}
+// After the battles each enemy takes its turn in front of you: it plays its card, and its fleets move out.
+function startReveal() {
+  const q = [], path = new Map();
+  for (const f of C.factions) {
+    const F = g.F[f]; if (F.state !== 'active') continue;
+    const ths = g.threats.filter(t => t.f === f), seen = ths.filter(t => !t.hidden), cd = F.played ? C.enemyCards[f][F.played] : null;
+    const moves = ths.length && !seen.length ? 'Its fleets move unseen.' : seen.length ? `${seen.length} fleet${seen.length > 1 ? 's set' : ' sets'} out for ${seen.map(t => g.P[t.to].name).join(', ')}.` : 'It holds its fleets back and builds up.';
+    q.push({ f, ths: seen, text: (cd ? `Plays <b>${cd.name}</b>: ${cd.text}. ` : '') + moves });
+    // each fleet's route from the home to where it launches
+    const link = g.facLinked(f);
+    for (const t of seen) {
+      const prev = new Map([[F.home, null]]), queue = [F.home];
+      while (queue.length) { const a = queue.shift(); if (a === t.from) break; for (const n of g.P[a].adj) if (link.has(n) && !prev.has(n)) { prev.set(n, a); queue.push(n); } }
+      const way = []; for (let a = t.from; a != null && prev.has(a); a = prev.get(a)) way.unshift(a);
+      path.set(t, way.length ? way.slice(-3) : [t.from]);
+    }
+  }
+  ui.reveal = q.length ? { q, i: 0, t: 0, shown: new Set(), anim: new Map(), path } : null;
+}
+function stepReveal(dt) {
+  const rv = ui.reveal, cur = rv.q[rv.i]; rv.t += dt;
+  cur.ths.forEach((th, k) => { const u = (rv.t - 0.8 - k * 0.45) / 1.1; if (u >= 0) { rv.shown.add(th); rv.anim.set(th, Math.min(1, u)); } });
+  if (rv.t > 0.8 + cur.ths.length * 0.45 + 1.6) { rv.i++; rv.t = 0; if (rv.i >= rv.q.length) ui.reveal = null; return true; }
+  return false;
 }
 
 // ---------- the hand ----------
@@ -253,13 +303,17 @@ function deckbar() {
     return cardHtml(id, `data-a="card" data-i="${i}"`, c.str && here ? f1(g.cardStr(id, p.id)) + ' HERE' : '', (ui.card === i ? ' sel' : '') + (ok ? '' : ' off'));
   }).join('');
   const n = [0, 1, 2].filter(s => g.count(s)).length;
-  const go = g.phase === 'plan' ? `<button class="plate btn go" id="commit" data-a="commit">${n || g.threats.length ? 'COMMIT<br>ORDERS' : 'END<br>ROUND'}</button>`
+  const go = g.phase === 'plan' ? `<button class="plate btn go" id="commit" data-a="commit" ${ui.reveal ? 'disabled' : ''}>${n || g.threats.length ? 'COMMIT<br>ORDERS' : 'END<br>ROUND'}</button>`
     : `<button class="plate btn" id="commit" data-a="speed">SPEED<br>×${ui.speed}</button>`;
   $('deck').innerHTML = play + `<div id="dk"><div class="piles"><button class="plate pile" data-a="deck"><b>${g.drawPile.length}</b><span>DRAW</span></button><button class="plate pile" data-a="deck"><b>${g.discard.length}</b><span>DISCARD</span></button></div>
     <div id="hand">${cards || '<div class="sm2 dim" style="padding:20px">No cards in hand.</div>'}</div>${go}</div>`;
+  // With a card in hand, the systems it can be played on are ringed on the map.
+  ui.valid = null;
+  if (ui.card != null && g.phase === 'plan') { const c = C.cards[g.hand[ui.card]]; if (c.type === 'mission' || c.needs === 'planet' || c.needs === 'front') ui.valid = new Set(g.P.filter(q => g.canPlay(ui.card, q.id).ok).map(q => q.id)); }
+  document.body.style.setProperty('--dh', $('deck').offsetHeight + $('mins').offsetHeight + $('coach').offsetHeight + 'px');
 }
 
-function refresh() { tutorial(); top(); side(); deckbar(); coach(); store(); if (g.over) gameOver(); else if (g.phase === 'plan' && g.offers.length && $('modal').hidden) offer(); }
+function refresh() { tutorial(); top(); turnbar(); side(); coach(); deckbar(); outline(); store(); if (g.over) gameOver(); else if (g.phase === 'plan' && !ui.reveal && g.offers.length && $('modal').hidden) offer(); }
 
 // ---------- the tutorial coach ----------
 // Moves past finished steps and steps that cannot be done, and opens the right tab when a step begins.
@@ -271,14 +325,13 @@ function tutorial() {
     const st = STEPS[ui.tut]; if (!st) { ui.tut = null; ui.hint = null; return; }
     const fresh = tutStep !== ui.tut;
     if ((fresh && st.skipIf && st.skipIf(g, ui)) || (st.done && st.done(g, ui))) { ui.tut++; continue; }
-    if (fresh) { tutStep = ui.tut; if (st.tab && g.phase === 'plan') ui.tab = st.tab; }
+    if (fresh) { tutStep = ui.tut; if (st.tab && g.phase === 'plan') { ui.tab = st.tab; ui.open = true; } else if (st.shut) ui.open = false; }
     ui.hint = st.hint ? st.hint(g, ui) : null;
     return;
   }
 }
 function coach() {
-  const el = $('coach'), st = ui.tut == null ? null : STEPS[ui.tut];
-  document.querySelectorAll('.hl').forEach(x => x.classList.remove('hl'));
+  const el = $('coach'), st = ui.tut == null || ui.reveal ? null : STEPS[ui.tut];
   if (!st) { el.hidden = true; return; }
   el.hidden = false;
   el.innerHTML = `<div class="ctx"><em>TUTORIAL · ${ui.tut + 1} OF ${STEPS.length}</em><p>${st.text(g, ui)}</p></div><div class="cbt">` +
@@ -286,9 +339,14 @@ function coach() {
     (st.help ? `<button class="plate amber btn sm" data-a="thelp">${st.help}</button>` : '') +
     (st.next ? '' : '<button class="plate btn sm" data-a="tnext">SKIP STEP</button>') +
     '<button class="plate btn sm" data-a="tend">END TUTORIAL</button></div>';
-  if (st.hi) document.querySelectorAll(st.hi).forEach(x => x.classList.add('hl'));
-  // Bring the thing being pointed at into view, once per step.
-  if (st.hi && coach.shown !== ui.tut) { coach.shown = ui.tut; const x = document.querySelector('#panel .hl, #hand .hl, #tabs .hl'); if (x) x.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+}
+// Outline what the coach is pointing at. Runs after everything is drawn, since drawing replaces the elements.
+function outline() {
+  const st = ui.tut == null || ui.reveal ? null : STEPS[ui.tut];
+  document.querySelectorAll('.hl').forEach(x => x.classList.remove('hl'));
+  if (!st || !st.hi) return;
+  document.querySelectorAll(st.hi).forEach(x => x.classList.add('hl'));
+  if (outline.shown !== ui.tut) { outline.shown = ui.tut; const x = document.querySelector('#panel .hl, #hand .hl'); if (x) x.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
 }
 
 // ---------- overlays ----------
@@ -341,8 +399,10 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-a]'); if (!el || el.disabled) return;
   const d = el.dataset, s = +d.s;
   switch (d.a) {
-    case 'tab': ui.tab = d.t; break;
-    case 'sel': ui.sel = +d.p; ui.tab = 'sys'; break;
+    case 'tab': if (ui.open && ui.tab === d.t) ui.open = false; else { ui.tab = d.t; ui.open = true; } break;
+    case 'shut': ui.open = false; break;
+    case 'skip': ui.reveal = null; break;
+    case 'sel': ui.sel = +d.p; ui.tab = 'sys'; ui.open = true; break;
     case 'card': {
       const i = +d.i, c = C.cards[g.hand[i]];
       if (ui.card === i) { if (!needsTarget(c)) playCard(null); else ui.card = null; }   // a second tap plays a card that needs no target
@@ -367,7 +427,8 @@ document.addEventListener('click', e => {
       ui.mark = g.log.length; ui.card = null; g.endPlan();
       const worst = [...g.battles].sort((a, b) => { const x = sum(a), y = sum(b); return x.P / x.E - y.P / y.E; })[0];
       ui.selBattle = worst ? worst.id : null; if (worst) ui.sel = worst.pid;
-      ui.tab = g.phase === 'battle' ? 'def' : 'int';
+      ui.tab = g.phase === 'battle' ? 'def' : 'int'; ui.open = g.phase === 'battle';
+      if (g.phase === 'plan') startReveal();   // a round with no battles goes straight to the enemies' turns
       break;
     }
     case 'take': g.takeOffer(d.i == null ? null : +d.i); $('modal').hidden = true; break;
@@ -409,8 +470,10 @@ const up = e => {
   const id = view.pick(g, x, y); ui.sel = id;
   const b = id != null && g.battles.find(q => q.pid === id); if (b) ui.selBattle = b.id;
   // With a card in hand, a tap on a valid target plays it there. Otherwise the tap opens the system.
-  if (ui.card != null && id != null && needsTarget(C.cards[g.hand[ui.card]])) playCard(g.phase === 'battle' ? (b ? b.id : null) : id);
-  else if (id != null && g.phase === 'plan') ui.tab = 'sys';
+  if (ui.reveal) ui.reveal = null;   // a tap ends the replay of the enemies' turns
+  else if (ui.card != null && id != null && needsTarget(C.cards[g.hand[ui.card]])) playCard(g.phase === 'battle' ? (b ? b.id : null) : id);
+  else if (id != null) { ui.tab = 'sys'; ui.open = true; }
+  else ui.open = false;
   refresh();
 };
 map.addEventListener('pointerup', up); map.addEventListener('pointercancel', up);
@@ -424,15 +487,19 @@ function frame(now) {
   if (g.phase === 'battle') {
     const ph = g.phase; let left = dt * ui.speed;
     while (left > 0 && g.phase === 'battle') { const st = Math.min(0.05, left); g.tick(st); left -= st; }
-    if (g.phase !== ph) { ui.selBattle = null; ui.card = null; ui.tab = 'int'; refresh(); }
+    if (g.phase !== ph) { ui.selBattle = null; ui.card = null; ui.tab = 'int'; ui.open = false; if (g.phase === 'plan') startReveal(); refresh(); }
     else {
       for (const b of g.battles) { const bar = document.querySelector(`[data-bar="${b.id}"]`); if (bar) bar.style.width = b.fight.p * 100 + '%'; }
-      if ((slow += dt) > 0.5) { slow = 0; side(); coach(); }
+      if ((slow += dt) > 0.5) { slow = 0; side(); coach(); outline(); }
     }
   }
+  if (ui.reveal) { const was = ui.reveal.i; if (stepReveal(dt) || !ui.reveal || ui.reveal.i !== was) refresh(); }
   view.draw(g, ui, now / 1000);
   const sc = $('sys'), p = g.P[ui.sel];
-  if (sc && p) { const s = g.frontOf(p.id), o = s >= 0 && g.ops[s]; drawSystem(sc, g, p, o && o.target === p.id ? o.cards : null, g.battles.find(b => b.pid === p.id), now / 1000); }
+  if (sc && p && sc.offsetParent) {
+    const s = g.frontOf(p.id), o = s >= 0 && g.ops[s], th = g.threats.find(t => t.to === p.id && !t.hidden && !(ui.reveal && !ui.reveal.shown.has(t)));
+    drawPlanet(sc, g, p, { battle: g.battles.find(b => b.pid === p.id), threat: th ? th.str : 0, enemy: th ? th.f : p.owner, op: o && o.target === p.id && o.cards.length ? g.opStrength(s) : 0 }, now / 1000);
+  }
   requestAnimationFrame(frame);
 }
 

@@ -29,7 +29,7 @@ export class View {
     this.cv.style.width = r.width + 'px'; this.cv.style.height = r.height + 'px';
     this.ctx.setTransform(d, 0, 0, d, 0, 0);
     // The map is a disc. Room is left for names at the top and the bulletin strip at the bottom.
-    const topPad = 26, botPad = 44;
+    const topPad = 58, botPad = 44;
     this.R0 = Math.max(60, Math.min((this.w - 36) / 2, (this.h - topPad - botPad) / 2) / 0.97);
     this.cx0 = this.w / 2; this.cy0 = topPad + (this.h - topPad - botPad) / 2;
     this._apply();
@@ -55,6 +55,32 @@ export class View {
     let best = null, bd = 24 * 24;
     for (const p of g.P) { const [a, b] = this.xy(p), d = (a - x) ** 2 + (b - y) ** 2; if (d < bd) { bd = d; best = p.id; } }
     return best;
+  }
+  // A fleet: a small wedge of ships flying toward `ang`, with its strength under it. These are the pieces on the board.
+  fleet(x, y, ang, n, color, label) {
+    const c = this.ctx, k = Math.min(1.5, this.k + 0.25), ca = Math.cos(ang), sa = Math.sin(ang);
+    const slots = [[0, 0], [-7, -5], [-7, 5], [-14, -10], [-14, 10], [-14, 0]];
+    c.fillStyle = color; c.strokeStyle = '#0b0d0c'; c.lineWidth = 1;
+    for (let i = 0; i < Math.min(n, slots.length); i++) {
+      const [fx, fy] = slots[i], px = x + (fx * ca - fy * sa) * k, py = y + (fx * sa + fy * ca) * k;
+      c.beginPath(); c.moveTo(px + ca * 6 * k, py + sa * 6 * k);
+      c.lineTo(px + Math.cos(ang + 2.5) * 5 * k, py + Math.sin(ang + 2.5) * 5 * k); c.lineTo(px + Math.cos(ang - 2.5) * 5 * k, py + Math.sin(ang - 2.5) * 5 * k);
+      c.closePath(); c.fill(); c.stroke();
+    }
+    if (label) {
+      c.font = '600 10px ' + HEAD; const tw = c.measureText(label).width + 6, lx = x - ca * 4, ly = y + 15 * k;
+      c.fillStyle = 'rgba(12,16,14,0.92)'; c.fillRect(lx - tw / 2, ly - 7, tw, 13);
+      c.fillStyle = color; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, lx, ly);
+    }
+  }
+  // A point part of the way along the lane from system a to system b, and the heading.
+  along(a, b, f) { const [x1, y1] = this.xy(a), [x2, y2] = this.xy(b); return [x1 + (x2 - x1) * f, y1 + (y2 - y1) * f, Math.atan2(y2 - y1, x2 - x1)]; }
+  // Where a fleet is while it travels a path of systems and then pulls up short of the last lane.
+  onPath(g, path, to, u) {
+    const pts = path.map(id => this.xy(g.P[id])); const end = this.along(g.P[path[path.length - 1]], g.P[to], 0.34); pts.push([end[0], end[1]]);
+    if (pts.length < 2) return end;
+    const seg = Math.min(pts.length - 2, Math.floor(u * (pts.length - 1))), f = u * (pts.length - 1) - seg, a = pts[seg], b = pts[seg + 1];
+    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, Math.atan2(b[1] - a[1], b[0] - a[0])];
   }
   arrow(a, b, color, dash, label, ra, rb) {
     const c = this.ctx, [x1, y1] = this.xy(a), [x2, y2] = this.xy(b), dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1;
@@ -86,19 +112,20 @@ export class View {
     const hot = new Set();
     if (g.phase === 'plan') {
       for (const th of g.threats) {
-        if (th.hidden) continue; hot.add(th.to);
-        this.arrow(g.P[th.from], g.P[th.to], col(th.f), [5, 4], th.str.toFixed(0), rad(g.P[th.from]), rad(g.P[th.to]));
+        if (th.hidden || (ui.reveal && !ui.reveal.shown.has(th))) continue; hot.add(th.to);
+        this.arrow(g.P[th.from], g.P[th.to], col(th.f), [5, 4], '', rad(g.P[th.from]), rad(g.P[th.to]));
       }
       for (let s = 0; s < 3; s++) {
         const o = g.ops[s]; if (!o) continue; hot.add(o.target);
         const from = g.P[o.target].adj.find(n => fl.has(n)); if (from == null) continue;
-        this.arrow(g.P[from], g.P[o.target], C.color.amber, [], g.count(s) ? g.opStrength(s).toFixed(0) + ' v ' + g.opEnemy(s).toFixed(0) : '', rad(g.P[from]), rad(g.P[o.target]));
+        this.arrow(g.P[from], g.P[o.target], C.color.amber, [], '', rad(g.P[from]), rad(g.P[o.target]));
       }
     }
     // star systems
     for (const p of g.P) {
       const [x, y] = this.xy(p), r = rad(p), enemy = p.owner !== 'fed', cut = !enemy && !fl.has(p.id);
       if (x < -40 || y < -40 || x > this.w + 40 || y > this.h + 40) continue;
+      if (ui.valid && ui.valid.has(p.id)) { c.strokeStyle = C.color.amber; c.lineWidth = 2; c.globalAlpha = 0.45 + 0.45 * Math.sin(t * 6); c.beginPath(); c.arc(x, y, r + 8, 0, 7); c.stroke(); c.globalAlpha = 1; }
       c.fillStyle = GROUND; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
       if (enemy) { c.globalAlpha = 0.3; c.fillStyle = col(p.owner); c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.globalAlpha = 1; }
       c.strokeStyle = col(p.owner); c.lineWidth = 1.8; c.globalAlpha = cut ? 0.45 : 1; c.setLineDash(cut ? [3, 3] : []);
@@ -132,14 +159,33 @@ export class View {
     if (g.phase === 'plan') {
       const dp = g.defPlan();
       for (const th of g.threats) {
-        if (th.hidden) continue;
+        if (th.hidden || (ui.reveal && !ui.reveal.shown.has(th))) continue;
         const p = g.P[th.to], [x, y] = this.xy(p), r = rad(p), D = dp.get(th).D, pin = g.pins(th);
         const state = pin ? 0 : D >= th.str * 1.08 ? 0 : D >= th.str * 0.93 ? 1 : 2;
         const colr = [col('fed'), C.color.amber, C.color.foundry][state];
         if (state === 2) { c.globalAlpha = 0.35 + 0.35 * Math.sin(t * 6); c.strokeStyle = colr; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r + 7, 0, 7); c.stroke(); c.globalAlpha = 1; }
         shield(c, x + r + 9, y - r - 5, 6 * Math.min(1.3, k + 0.3), colr, state === 2 ? 'rgba(255,106,77,0.35)' : 'rgba(12,16,14,0.95)');
+        c.font = '10px ' + MONO; c.fillStyle = colr; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(pin ? 'PIN' : D.toFixed(0), x + r + 18, y - r - 4);
       }
-      for (let s = 0; s < 3; s++) { const o = g.ops[s]; if (o && o.cards.length) { const p = g.P[o.target], [x, y] = this.xy(p); reticle(c, x, y, rad(p) + 7, C.color.amber); } }
+      for (let s = 0; s < 3; s++) {
+        const o = g.ops[s]; if (!o || !o.cards.length) continue;
+        const p = g.P[o.target], [x, y] = this.xy(p), r = rad(p); reticle(c, x, y, r + 7, C.color.amber);
+      }
+    }
+    // the fleets: enemy fleets on their way to what they attack, yours gathered beside what you attack
+    if (g.phase === 'plan') {
+      g.threats.forEach((th, i) => {
+        if (th.hidden || (ui.reveal && !ui.reveal.shown.has(th))) return;
+        const u = ui.reveal ? ui.reveal.anim.get(th) : null;
+        const [x, y, a] = u != null && u < 1 ? this.onPath(g, ui.reveal.path.get(th), th.to, u) : this.along(g.P[th.from], g.P[th.to], 0.34 + 0.02 * Math.sin(t * 2 + i));
+        this.fleet(x, y, a, Math.max(1, Math.round(th.str / 3)), col(th.f), th.str.toFixed(0));
+      });
+      for (let s = 0; s < 3; s++) {
+        const o = g.ops[s]; if (!o || !o.cards.length) continue;
+        const from = g.P[o.target].adj.find(n => fl.has(n)); if (from == null) continue;
+        const [x, y, a] = this.along(g.P[from], g.P[o.target], 0.34 + 0.02 * Math.sin(t * 2 + s));
+        this.fleet(x, y, a, o.cards.length + 1, col('fed'), g.opStrength(s).toFixed(0));
+      }
     }
     // battles
     for (const b of g.battles) {
@@ -164,8 +210,18 @@ export class View {
           c.lineTo(sx + Math.cos(h + 2.5) * 4, sy + Math.sin(h + 2.5) * 4); c.lineTo(sx + Math.cos(h - 2.5) * 4, sy + Math.sin(h - 2.5) * 4); c.fill();
         }
       };
-      ships(Math.max(1, Math.min(9, Math.round(st.P / 3))), r + 8, 1, col('fed'));
-      ships(Math.max(1, Math.min(9, Math.round(st.E / 3))), r + 16, -1, col(b.f));
+      // The attacking fleet flies in along its lane, then the two sides circle and fight.
+      const src = b.kind === 'def' ? b.from : p.adj.find(n => fl.has(n)), u = Math.min(1, b.fight.t / 1.4), atk = b.kind === 'def' ? b.f : 'fed';
+      if (u < 1 && src != null) {
+        const [fx, fy, a] = this.along(g.P[src], p, 0.34 + (0.92 - 0.34) * u);
+        this.fleet(fx, fy, a, Math.max(1, Math.round((b.kind === 'def' ? st.E : st.P) / 3)), col(atk), '');
+        ships(Math.max(1, Math.min(9, Math.round((b.kind === 'def' ? st.P : st.E) / 3))), r + 8, 1, col(b.kind === 'def' ? 'fed' : b.f));
+      } else {
+        ships(Math.max(1, Math.min(9, Math.round(st.P / 3))), r + 8, 1, col('fed'));
+        ships(Math.max(1, Math.min(9, Math.round(st.E / 3))), r + 16, -1, col(b.f));
+        // tracer fire between the two rings
+        if (Math.sin(t * 23 + b.id) > 0.2) { const a1 = t * 1.6 + b.id, a2 = -t * 1.6 + b.id * 2; c.strokeStyle = TEXT; c.globalAlpha = 0.6; c.lineWidth = 1; c.beginPath(); c.moveTo(x + Math.cos(a1) * (r + 8), y + Math.sin(a1) * (r + 8)); c.lineTo(x + Math.cos(a2) * (r + 16), y + Math.sin(a2) * (r + 16)); c.stroke(); c.globalAlpha = 1; }
+      }
     }
     // names
     c.textAlign = 'center'; c.textBaseline = 'top';
@@ -181,48 +237,68 @@ export class View {
   }
 }
 
-// The inside of one star system: its star and its worlds, each drawn by kind. The key world, the only one fought
-// over, is bracketed; planned missions and the live fight are shown on it.
-export function drawSystem(cv, g, p, opCards, battle, t) {
+// One planet in full view: the system's key world, where any fight for the system happens. Fleets gather beside it
+// when an attack is planned or announced, and fight around it during a battle. Flavour only: the war is on the map.
+function world(c, wd, x, y, R) {
+  const T = C.worlds[wd.type];
+  c.save(); c.beginPath(); c.arc(x, y, R, 0, 7); c.clip();
+  c.fillStyle = T.col; c.fillRect(x - R, y - R, R * 2, R * 2);
+  if (wd.type === 'refinery') { c.fillStyle = 'rgba(255,240,200,0.28)'; for (const [a, b] of [[-0.7, 0.16], [-0.3, 0.2], [0.2, 0.14], [0.55, 0.2]]) c.fillRect(x - R, y + R * a, R * 2, R * b); c.fillStyle = 'rgba(90,50,20,0.35)'; c.fillRect(x - R, y - R * 0.08, R * 2, R * 0.22); }
+  if (wd.type === 'forge') { c.fillStyle = '#3a2018'; c.fillRect(x - R, y - R, R * 2, R * 2); c.fillStyle = '#ff8a3d'; for (let q = 0; q < 26; q++) { const a = q * 2.4 + wd.tint * 6, d = (0.15 + ((q * 37) % 80) / 100) * R; c.fillRect(x + Math.cos(a) * d, y + Math.sin(a * 1.3) * d, 1 + R / 26, 1 + R / 26); } }
+  if (wd.type === 'colony' || wd.type === 'capital') {
+    c.fillStyle = wd.type === 'capital' ? '#2f8f84' : '#4f9a6a';
+    for (const [a, b, r] of [[-0.35, -0.25, 0.42], [0.3, 0.35, 0.36], [0.05, -0.55, 0.2], [-0.5, 0.45, 0.22]]) { c.beginPath(); c.arc(x + R * a, y + R * b, R * r, 0, 7); c.fill(); }
+    c.fillStyle = 'rgba(255,255,255,0.45)'; c.fillRect(x - R, y - R * 0.78, R * 2, R * 0.1); c.fillRect(x - R * 0.2, y + R * 0.1, R * 1.2, R * 0.07);
+  }
+  if (wd.type === 'fortress') { c.strokeStyle = 'rgba(20,26,24,0.7)'; c.lineWidth = Math.max(1.2, R / 22); c.beginPath(); for (const f of [-0.5, 0, 0.5]) { c.moveTo(x - R, y + R * f); c.lineTo(x + R, y + R * f); c.moveTo(x + R * f, y - R); c.lineTo(x + R * f, y + R); } c.stroke(); }
+  if (wd.type === 'barren') { c.fillStyle = 'rgba(0,0,0,0.3)'; for (const [a, b, r] of [[-0.3, -0.25, 0.22], [0.3, 0.3, 0.28], [0.1, -0.5, 0.12], [-0.45, 0.4, 0.14]]) { c.beginPath(); c.arc(x + R * a, y + R * b, R * r, 0, 7); c.fill(); } }
+  c.fillStyle = 'rgba(0,0,0,0.5)'; c.beginPath(); c.arc(x + R * 0.8, y, R * 1.08, 0, 7); c.fill();   // the night side
+  c.restore();
+  if (wd.type === 'refinery') { c.strokeStyle = 'rgba(240,220,170,0.55)'; c.lineWidth = Math.max(1.4, R / 16); c.beginPath(); c.ellipse(x, y, R * 1.7, R * 0.4, -0.3, 0, 7); c.stroke(); }
+}
+function wing(c, x, y, ang, n, color, s = 1) {
+  c.fillStyle = color;
+  for (let i = 0; i < n; i++) {
+    const px = x - Math.cos(ang) * 11 * s * Math.floor((i + 1) / 2) + Math.sin(ang) * 9 * s * (i % 2 ? 1 : -1) * Math.ceil(i / 2), py = y - Math.sin(ang) * 11 * s * Math.floor((i + 1) / 2) - Math.cos(ang) * 9 * s * (i % 2 ? 1 : -1) * Math.ceil(i / 2);
+    c.beginPath(); c.moveTo(px + Math.cos(ang) * 8 * s, py + Math.sin(ang) * 8 * s); c.lineTo(px + Math.cos(ang + 2.5) * 6 * s, py + Math.sin(ang + 2.5) * 6 * s); c.lineTo(px + Math.cos(ang - 2.5) * 6 * s, py + Math.sin(ang - 2.5) * 6 * s); c.fill();
+  }
+}
+// info: { threat: strength of an announced attack or 0, enemy: its owner, op: your planned strength or 0, battle }
+export function drawPlanet(cv, g, p, info, t) {
   const r = cv.getBoundingClientRect(); if (!r.width) return;
   const d = Math.min(2, window.devicePixelRatio || 1);
   if (cv.width !== Math.round(r.width * d)) { cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d); }
-  const c = cv.getContext('2d'), w = r.width, h = r.height, n = p.worlds.length;
-  c.setTransform(d, 0, 0, d, 0, 0); c.fillStyle = '#070908'; c.fillRect(0, 0, w, h);
-  const sx = -18, sy = h * 0.5;
-  c.fillStyle = '#f2e3a8'; c.beginPath(); c.arc(sx, sy, 44, 0, 7); c.fill();
-  c.fillStyle = '#fff6d6'; c.beginPath(); c.arc(sx, sy, 34, 0, 7); c.fill();
-  c.textAlign = 'center';
-  p.worlds.forEach((wd, i) => {
-    const orb = n === 1 ? 78 + (w - 118) / 2 : 78 + i * (w - 118) / (n - 1);
-    c.strokeStyle = 'rgba(230,234,220,0.13)'; c.lineWidth = 1; c.beginPath(); c.arc(sx, sy, orb, -1.2, 1.2); c.stroke();
-    const a = Math.sin(t * 0.12 + wd.phase) * Math.min(0.4, (h * 0.1) / orb), x = sx + Math.cos(a) * orb, y = sy + 2 + Math.sin(a) * orb;
-    const R = 9 * wd.size, T = C.worlds[wd.type];
-    c.save(); c.beginPath(); c.arc(x, y, R, 0, 7); c.clip();
-    c.fillStyle = T.col; c.fillRect(x - R, y - R, R * 2, R * 2);
-    if (wd.type === 'refinery') { c.fillStyle = 'rgba(255,240,200,0.28)'; c.fillRect(x - R, y - R * 0.55, R * 2, R * 0.3); c.fillRect(x - R, y + R * 0.15, R * 2, R * 0.22); c.fillStyle = 'rgba(90,50,20,0.35)'; c.fillRect(x - R, y - R * 0.15, R * 2, R * 0.2); }
-    if (wd.type === 'forge') { c.fillStyle = '#3a2018'; c.fillRect(x - R, y - R, R * 2, R * 2); c.fillStyle = '#ff8a3d'; for (let q = 0; q < 6; q++) c.fillRect(x + Math.cos(q * 2.4 + wd.tint * 6) * R * 0.55 - 1, y + Math.sin(q * 1.7 + wd.tint * 6) * R * 0.55 - 1, 2.2, 2.2); }
-    if (wd.type === 'colony' || wd.type === 'capital') { c.fillStyle = wd.type === 'capital' ? '#2f8f84' : '#4f9a6a'; c.beginPath(); c.arc(x - R * 0.3, y - R * 0.2, R * 0.5, 0, 7); c.arc(x + R * 0.35, y + R * 0.4, R * 0.35, 0, 7); c.fill(); c.fillStyle = 'rgba(255,255,255,0.5)'; c.fillRect(x - R, y - R * 0.75, R * 2, R * 0.14); }
-    if (wd.type === 'fortress') { c.strokeStyle = 'rgba(20,26,24,0.7)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(x - R, y - R * 0.3); c.lineTo(x + R, y - R * 0.3); c.moveTo(x - R, y + R * 0.3); c.lineTo(x + R, y + R * 0.3); c.moveTo(x, y - R); c.lineTo(x, y + R); c.stroke(); }
-    if (wd.type === 'barren') { c.fillStyle = 'rgba(0,0,0,0.3)'; c.beginPath(); c.arc(x - R * 0.3, y - R * 0.25, R * 0.24, 0, 7); c.arc(x + R * 0.3, y + R * 0.3, R * 0.3, 0, 7); c.fill(); }
-    c.fillStyle = 'rgba(0,0,0,0.5)'; c.beginPath(); c.arc(x + R * 0.75, y, R * 1.05, 0, 7); c.fill();   // the night side, away from the star
-    c.restore();
-    if (wd.type === 'refinery') { c.strokeStyle = 'rgba(240,220,170,0.55)'; c.lineWidth = 1.4; c.beginPath(); c.ellipse(x, y, R * 1.7, R * 0.42, -0.3, 0, 7); c.stroke(); }
-    const key = i === p.key;
-    c.strokeStyle = col(p.owner); c.lineWidth = key ? 1.8 : 1; c.globalAlpha = key ? 1 : 0.55; c.beginPath(); c.arc(x, y, R + 3.5, 0, 7); c.stroke(); c.globalAlpha = 1;
-    if (key) { c.strokeStyle = C.color.amber; c.lineWidth = 1.2; const q = R + 8; for (const [ax, ay] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { c.beginPath(); c.moveTo(x + ax * q, y + ay * (q - 5)); c.lineTo(x + ax * q, y + ay * q); c.lineTo(x + ax * (q - 5), y + ay * q); c.stroke(); } }
-    c.font = '10px ' + MONO; c.fillStyle = DIM; c.textBaseline = 'top';
-    c.fillText(key ? 'KEY WORLD' : wd.name.split(' ').pop().toUpperCase(), x, y + R + 11);
-    const tag = (txt, bg, fg) => {
-      c.font = '600 10px ' + HEAD; const tw = c.measureText(txt).width + 8;
-      c.fillStyle = bg; c.fillRect(x - tw / 2, y - R - 31, tw, 14); c.fillStyle = fg; c.textBaseline = 'middle'; c.fillText(txt, x, y - R - 23.5);
-    };
-    if (!key) return;
-    const f = battle && battle.fight;
-    if (f) {   // the fight for the system happens here
-      const bw = 50; c.fillStyle = col(battle.f); c.fillRect(x - bw / 2, y - R - 14, bw, 4);
-      c.fillStyle = col('fed'); c.fillRect(x - bw / 2, y - R - 14, bw * f.p, 4);
-      if (f.done) tag(f.evac ? 'RECALLED' : f.win ? (battle.kind === 'op' ? 'TAKEN' : 'HELD') : (battle.kind === 'op' ? 'REPELLED' : 'LOST'), f.win || f.evac ? col('fed') : C.color.foundry, '#0b0d0c');
-    } else if (opCards && opCards.length) tag(`${opCards.length} MISSION${opCards.length > 1 ? 'S' : ''}`, C.color.amber, '#141204');
-  });
+  const c = cv.getContext('2d'), w = r.width, h = r.height;
+  c.setTransform(d, 0, 0, d, 0, 0); c.fillStyle = '#060807'; c.fillRect(0, 0, w, h);
+  c.fillStyle = 'rgba(230,234,220,0.5)'; for (let i = 0; i < 40; i++) c.fillRect((i * 97.3 + p.id * 31) % w, (i * 53.7 + p.id * 17) % h, 1, 1);   // stars
+  const x = w / 2, y = h / 2, R = Math.min(h * 0.36, w * 0.2), kw = p.worlds[p.key];
+  world(c, kw, x, y, R);
+  c.strokeStyle = col(p.owner); c.lineWidth = 1.6; c.beginPath(); c.arc(x, y, R + 5, 0, 7); c.stroke();
+  // the system's other worlds, small, off to the side
+  let mx = w - 22; c.font = '9px ' + MONO; c.textAlign = 'center'; c.textBaseline = 'top';
+  p.worlds.forEach((wd, i) => { if (i === p.key) return; world(c, wd, mx, h - 26, 7 * wd.size); mx -= 30; });
+  const b = info.battle, enemy = info.enemy;
+  if (b) {
+    const f = b.fight, np = Math.max(1, Math.min(7, Math.round(f.P / 3))), ne = Math.max(1, Math.min(7, Math.round(f.E / 3)));
+    if (!f.done) {
+      // both fleets circle the planet and trade fire
+      for (let i = 0; i < np; i++) { const a = t * 0.9 + i * 6.283 / np; wing(c, x + Math.cos(a) * (R + 22), y + Math.sin(a) * (R + 22) * 0.55, a + 1.57, 1, col('fed')); }
+      for (let i = 0; i < ne; i++) { const a = -t * 0.8 + i * 6.283 / ne + 1; wing(c, x + Math.cos(a) * (R + 40), y + Math.sin(a) * (R + 40) * 0.55, a - 1.57, 1, col(b.f)); }
+      for (let i = 0; i < 3; i++) if (Math.sin(t * 19 + i * 2.1) > 0.1) {
+        const a1 = t * 0.9 + i * 2, a2 = -t * 0.8 + i * 2.6 + 1, side = Math.sin(t * 7 + i) > 0;
+        c.strokeStyle = side ? col('fed') : col(b.f); c.lineWidth = 1.2; c.globalAlpha = 0.8; c.beginPath();
+        c.moveTo(x + Math.cos(a1) * (R + 22), y + Math.sin(a1) * (R + 22) * 0.55); c.lineTo(x + Math.cos(a2) * (R + 40), y + Math.sin(a2) * (R + 40) * 0.55); c.stroke(); c.globalAlpha = 1;
+      }
+      if (Math.sin(t * 11) > 0.6) { c.fillStyle = '#fff3c4'; const a = t * 3; c.beginPath(); c.arc(x + Math.cos(a) * R * 0.6, y + Math.sin(a) * R * 0.6, 2.5, 0, 7); c.fill(); }   // flashes on the surface
+    }
+    const bw = Math.min(180, w * 0.5); c.fillStyle = col(b.f); c.fillRect(x - bw / 2, h - 12, bw, 5); c.fillStyle = col('fed'); c.fillRect(x - bw / 2, h - 12, bw * f.p, 5);
+    if (f.done) { const txt = f.evac ? 'RECALLED' : f.win ? (b.kind === 'op' ? 'TAKEN' : 'HELD') : (b.kind === 'op' ? 'REPELLED' : 'LOST'); c.font = '700 16px ' + HEAD; c.textBaseline = 'middle'; c.fillStyle = f.win || f.evac ? col('fed') : C.color.foundry; c.fillText(txt, x, 16); }
+  } else {
+    // fleets waiting: the enemy's on the right if an attack is announced, yours on the left if you plan one
+    if (info.threat) { const bob = Math.sin(t * 1.5) * 3; wing(c, w - 46 + bob, y - 8, Math.PI, Math.max(1, Math.min(5, Math.round(info.threat / 3))), col(enemy), 1.1); c.font = '10px ' + MONO; c.fillStyle = col(enemy); c.textBaseline = 'top'; c.fillText('INBOUND ' + info.threat.toFixed(0), w - 52, y + 22); }
+    if (info.op) { const bob = Math.sin(t * 1.5 + 1) * 3; wing(c, 46 + bob, y - 8, 0, Math.max(1, Math.min(5, Math.round(info.op / 3))), col('fed'), 1.1); c.font = '10px ' + MONO; c.fillStyle = col('fed'); c.textBaseline = 'top'; c.fillText('YOUR FLEET ' + info.op.toFixed(0), 56, y + 22); }
+    if (p.owner !== 'fed' && !info.op) { const n = Math.max(1, Math.min(4, Math.round(g.garrison(p.id) / 5))); for (let i = 0; i < n; i++) { const a = t * 0.5 + i * 6.283 / n; wing(c, x + Math.cos(a) * (R + 24), y + Math.sin(a) * (R + 24) * 0.5, a + 1.57, 1, col(p.owner), 0.8); } }   // its garrison on patrol
+  }
+  c.font = '600 11px ' + HEAD; c.fillStyle = TEXT; c.textAlign = 'left'; c.textBaseline = 'top'; c.fillText(kw.name.toUpperCase(), 8, 6);
+  c.font = '9.5px ' + MONO; c.fillStyle = DIM; c.fillText(C.worlds[kw.type].name, 8, 20);
 }

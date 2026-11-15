@@ -1,5 +1,5 @@
 // Every number and every name in the game lives here, so the prototype can be retuned or renamed in one place.
-export const VERSION = '0.4.1';
+export const VERSION = '0.5.0';
 
 export const C = {
   names: {
@@ -18,14 +18,14 @@ export const C = {
   },
   // The ministries, as in FOB Super Commander. Each is a tab; `does` is the one line shown under its name.
   ministries: {
-    int: { name: 'INTELLIGENCE', does: 'Reports, warnings and suggested actions.' },
-    def: { name: 'DEFENCE',      does: 'Orders: operations, mobilisation, defence.' },
-    pro: { name: 'PROSPERITY',   does: 'Manages what you have: stock, income, exchange.' },
-    exp: { name: 'EXPANSION',    does: 'Grows what you have: develops your systems.' },
-    tru: { name: 'TRUTH',        does: 'Keeps morale up and deals with dissidents.' },
-    hum: { name: 'HUMANITY',     does: 'Regulates the population: volunteers or conscripts.' },
-    emp: { name: 'EMPLOYMENT',   does: 'Decides which route the work and supply flow to.' },
-    uni: { name: 'UNITY',        does: 'The standing of the war.' },
+    int: { short: 'INTEL', name: 'INTELLIGENCE', does: 'Reports, warnings and suggested actions.' },
+    def: { short: 'DEFENCE', name: 'DEFENCE',      does: 'Orders: operations, mobilisation, defence.' },
+    pro: { short: 'PROSPER', name: 'PROSPERITY',   does: 'Manages what you have: stock, income, exchange.' },
+    exp: { short: 'EXPAND', name: 'EXPANSION',    does: 'Grows what you have: develops your systems.' },
+    tru: { short: 'TRUTH', name: 'TRUTH',        does: 'Keeps morale up and deals with dissidents.' },
+    hum: { short: 'HUMANITY', name: 'HUMANITY',     does: 'Regulates the population: volunteers or conscripts.' },
+    emp: { short: 'EMPLOY', name: 'EMPLOYMENT',   does: 'Decides which route the work and supply flow to.' },
+    uni: { short: 'UNITY', name: 'UNITY',        does: 'The standing of the war.' },
   },
   factions: ['swarm', 'foundry', 'veil'],   // the order of arrival; their homes sit on routes 0, 2 and 4 of six
   color: { fed: '#7fe9e0', swarm: '#ff9a3d', foundry: '#ff6a4d', veil: '#b58cff', amber: '#f5d547' },

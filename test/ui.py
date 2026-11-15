@@ -13,21 +13,24 @@ with sync_playwright() as pw:
         pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None)
         pg.goto('http://localhost:8080/?seed=7'); pg.wait_for_timeout(600)
         assert js(pg, 'document.querySelectorAll("#hand .card").length') == 5, 'the opening hand should be five cards'
-        assert js(pg, 'document.querySelectorAll("#tabs .tab").length') == 9, 'a system tab and eight ministries'
+        assert js(pg, 'document.querySelectorAll("#mins .min").length') == 8, 'eight ministries'
+        assert js(pg, '[...document.querySelectorAll("#mins .min")].every(b => { const r = b.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 1 && r.width >= 40; })'), 'every ministry button is on screen'
+        assert pg.is_visible('#turn .trk'), 'no turn strip'
         pg.click('[data-a=commit]'); pg.wait_for_timeout(300)          # round 1: nothing happening
         assert js(pg, 'sgs.g.round') == 2, 'round did not advance'
         # every ministry tab draws
         for t in ['def', 'pro', 'exp', 'tru', 'hum', 'emp', 'uni', 'int']:
-            pg.click(f'[data-a=tab][data-t={t}]'); assert js(pg, 'document.getElementById("panel").textContent.length') > 40, t
+            pg.click(f'.min[data-t={t}]'); assert pg.is_visible('#panel') and js(pg, 'document.getElementById("panel").textContent.length') > 40, t
         pg.screenshot(path=f'{out}/{name}-1-intel.png')
         # ministries act
-        pg.click('[data-a=tab][data-t=def]'); assert not pg.query_selector('[data-a=dir][data-m=attack]'), 'offensive offered before mobilising'
+        js(pg, 'sgs.ui.reveal=null'); pg.click('.min[data-t=def]'); assert not pg.query_selector('[data-a=dir][data-m=attack]'), 'offensive offered before mobilising'
         pg.click('[data-a=mob]'); assert js(pg, '!!sgs.g.mob'), 'mobilise did nothing'
-        pg.click('[data-a=tab][data-t=emp]'); pg.click('[data-a=route][data-k="0"]'); assert js(pg, 'sgs.g.route') == 0, 'route'
-        pg.click('[data-a=tab][data-t=hum]'); pg.click('[data-a=pol][data-k=volunteer]'); assert js(pg, 'sgs.g.policy') == 'volunteer', 'policy'
+        pg.click('.min[data-t=emp]'); pg.click('[data-a=route][data-k="0"]'); assert js(pg, 'sgs.g.route') == 0, 'route'
+        pg.click('.min[data-t=hum]'); pg.click('[data-a=pol][data-k=volunteer]'); assert js(pg, 'sgs.g.policy') == 'volunteer', 'policy'
         # play mission cards from the hand onto the softest system in reach: tap the card, then PLAY ON
         tgt = js(pg, 'sgs.g.targets(0).sort((a,b)=>sgs.g.enemyAt(a)-sgs.g.enemyAt(b))[0]')
-        js(pg, f'sgs.ui.sel={tgt}'); pg.click('[data-a=tab][data-t=sys]')
+        js(pg, f'sgs.ui.sel={tgt}; sgs.ui.tab="sys"; sgs.ui.open=true; sgs.refresh()')
+        assert pg.is_visible('#sys'), 'no planet view'
         for _ in range(3):
             i = js(pg, f'sgs.g.hand.findIndex((id,i)=>sgs.g.canPlay(i,{tgt}).ok && ["assault","siege","sabotage"].includes(id))')
             if i < 0: break
@@ -41,6 +44,10 @@ with sync_playwright() as pw:
         pg.screenshot(path=f'{out}/{name}-3-battle.png')
         pg.click('[data-a=speed]')
         pg.wait_for_function('sgs.g.phase !== "battle"', timeout=30000); pg.wait_for_timeout(300)
+        assert js(pg, '!!sgs.ui.reveal'), 'the enemy turn was not replayed'
+        pg.wait_for_timeout(1200); pg.screenshot(path=f'{out}/{name}-3b-enemy-turn.png')
+        assert pg.is_enabled('#commit') is False, 'commit should wait for the enemy turn'
+        pg.click('[data-a=skip]'); pg.wait_for_timeout(200)
         if pg.query_selector('[data-a=take]'): pg.click('[data-a=take]')
         assert js(pg, 'sgs.g.deckSize()') >= 12, 'cards went missing from the deck'
         pg.click('[data-a=zin]'); pg.click('[data-a=zin]'); assert js(pg, 'sgs.view.zoom') > 2, 'zoom'
