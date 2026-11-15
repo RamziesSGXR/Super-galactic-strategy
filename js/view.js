@@ -123,6 +123,10 @@ export class View {
         for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { c.beginPath(); c.moveTo(x + sx * q, y + sy * (q - 4)); c.lineTo(x + sx * q, y + sy * q); c.lineTo(x + sx * (q - 4), y + sy * q); c.stroke(); }
       }
       if (ui.sel === p.id) { c.strokeStyle = C.color.amber; c.lineWidth = 1.6; c.strokeRect(x - r - 7, y - r - 7, (r + 7) * 2, (r + 7) * 2); }
+      if (ui.hint === p.id) {   // the tutorial is pointing at this system
+        const q = r + 9 + 4 * Math.sin(t * 5); c.strokeStyle = C.color.amber; c.lineWidth = 2.4; c.beginPath(); c.arc(x, y, q, 0, 7); c.stroke();
+        c.globalAlpha = 0.35; c.beginPath(); c.arc(x, y, q + 6, 0, 7); c.stroke(); c.globalAlpha = 1;
+      }
     }
     // what needs defending, and what you are attacking
     if (g.phase === 'plan') {

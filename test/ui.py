@@ -12,7 +12,6 @@ with sync_playwright() as pw:
         pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None)
         pg.goto('http://localhost:8080/?seed=7'); pg.wait_for_timeout(600)
-        pg.click('[data-a=close]')
         assert js(pg, 'document.querySelectorAll("#hand .card").length') == 5, 'the opening hand should be five cards'
         assert js(pg, 'document.querySelectorAll("#tabs .tab").length') == 9, 'a system tab and eight ministries'
         pg.click('[data-a=commit]'); pg.wait_for_timeout(300)          # round 1: nothing happening

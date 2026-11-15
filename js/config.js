@@ -1,5 +1,5 @@
 // Every number and every name in the game lives here, so the prototype can be retuned or renamed in one place.
-export const VERSION = '0.4.0';
+export const VERSION = '0.4.1';
 
 export const C = {
   names: {
@@ -68,7 +68,7 @@ export const C = {
   pin: 0.5,          // the share of a pinned attack that joins the garrison
   winBack: 0.35,     // share of an attack's force the enemy keeps after winning
 
-  weak: { swarm: 'siege', foundry: 'sabotage', veil: 'assault' },   // the kind of mission each enemy cannot take
+  weak: { swarm: 'siege', foundry: 'sabotage', veil: 'assault' },   // the kind of mission each enemy is weak to
   weakAdd: 0.5, favAdd: 0.25,   // strength added for hitting the enemy's weak point, and for suiting the key world
   // A general attack carries at most `general` mission cards. A major offensive carries up to `major`.
   op: { general: 2, major: 4, fuel: 1, fuelRing: 1.2 },

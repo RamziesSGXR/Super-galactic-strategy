@@ -1,6 +1,6 @@
 # Super Galactic Strategy
 
-**Prototype 0.4.0.** Working title of the design: *Four Fronts*.
+**Prototype 0.4.1.** Working title of the design: *Four Fronts*.
 
 You are Federation High Command at the capital, Aurelia. Three enemies arrive one after another, each down its own
 lanes, and they never fight each other. Hold the centre, then take all three enemy homes.
@@ -17,6 +17,13 @@ On GitHub Pages, serve the repository root. Add `?seed=7` to replay the same war
 
 A strategic deck-builder. Each round you draw a hand of cards, play missions onto the map, and give the rest of your
 orders through the ministries. Then every battle runs at once, the enemies take their turn, and you draw again.
+
+## Tutorial
+
+A first visit offers the tutorial; after that it is under **Unity → TUTORIAL**, or add `?tutorial` to the address.
+It is a guided war of about three rounds. A coach above the ministry tabs says one thing at a time, outlines the
+button or rings the system it means, and moves on when you have done it. Each step can be done for you or skipped.
+The steps are in `js/tutorial.js`.
 
 ## Your deck
 
@@ -100,6 +107,7 @@ space battle to reach the world, a ground battle on it. The hand-off point is ma
 | `js/sim.js` | All rules, with no screen code (`Game`) |
 | `js/view.js` | The galaxy map and the star-system view, drawn on canvases |
 | `js/main.js` | The interface |
+| `js/tutorial.js` | The tutorial's steps |
 | `js/bot.js` | A simple player for testing |
 
 ## Checks
@@ -107,6 +115,7 @@ space battle to reach the world, a ground battle on it. The hand-off point is ma
 - `npm run sim [games]` plays whole wars with no screen: the test bot, then nobody at the controls.
   At 0.4.0, of 100 wars the simple bot wins 68 and loses 28 in about 38 rounds. An undefended Federation falls by
   about round 22.
+- `python3 test/tutorial.py` (with `npm start` running) follows the tutorial from the first step to the last.
 - `python3 test/ui.py` (with `npm start` running) clicks through two rounds at phone and desktop size: the hand,
   every ministry tab, playing cards onto a system, the battle, zoom, dragging, and that a saved war loads.
 

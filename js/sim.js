@@ -385,7 +385,7 @@ export class Game {
       if (this.mobReady(s)) say('good', `The front against ${N.factions[f]} is mobilised. Launch the major offensive within ${this.mob.until - this.round + 1} round(s).`, ts[0]);
       if (ts.length && !this.count(s)) {
         const home = ts.find(id => this.P[id].kind === 'home');
-        say('info', `${N.factions[f]} cannot take ${C.weak[f].toUpperCase()} missions. Softest system in reach: ${this.P[ts[0]].name} (${Math.round(this.enemyAt(ts[0]))})${home != null ? `. Its home is in reach (${Math.round(this.enemyAt(home))})` : ''}.`, ts[0]);
+        say('info', `${N.factions[f]} is weak to ${C.weak[f].toUpperCase()} cards. Softest system in reach: ${this.P[ts[0]].name} (${Math.round(this.enemyAt(ts[0]))})${home != null ? `. Its home is in reach (${Math.round(this.enemyAt(home))})` : ''}.`, ts[0]);
       }
       if (F.cards.length) say('warn', `${N.factions[f]} holds a card and will play it next turn.`);
     }

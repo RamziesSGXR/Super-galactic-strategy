@@ -143,3 +143,16 @@ section { margin-bottom: 10px; }
 #modal p, #modal li { margin-bottom: 8px; font-size: 12.5px; }
 #modal ul { padding-left: 16px; margin-bottom: 10px; }
 @media (max-height: 760px) { .card { height: 112px; } .card .tx { display: none; } }
+
+/* ---------- the tutorial coach: sits above the ministry tabs, so the map stays clear ---------- */
+#coach { flex: 0 0 auto; background: rgba(40, 36, 10, 0.55); border-bottom: 2px solid var(--amber); padding: 8px 10px; }
+#coach[hidden] { display: none; }
+#coach em { font: 600 10px var(--head); letter-spacing: 1.5px; color: var(--amber); font-style: normal; }
+#coach p { font-size: 12.5px; line-height: 1.4; margin: 3px 0 7px; }
+#coach p b { color: var(--amber); font-weight: normal; }
+#coach .cbt { display: flex; gap: 6px; flex-wrap: wrap; }
+#coach .btn.go { width: auto; flex: 1; min-height: 38px; font-size: 12px; padding: 2px 12px; }
+#coach .btn.sm { min-height: 38px; }
+.hl { outline: 2px solid var(--amber); outline-offset: 2px; animation: hl 1s ease-in-out infinite alternate; }
+.card.hl, .plate.hl { clip-path: none; }
+@keyframes hl { from { outline-color: rgba(245, 213, 71, 0.25); } to { outline-color: rgba(245, 213, 71, 1); } }

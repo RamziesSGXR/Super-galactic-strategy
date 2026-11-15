@@ -3,6 +3,7 @@
 import { C, VERSION } from './config.js';
 import { Game } from './sim.js';
 import { View, drawSystem, sum } from './view.js';
+import { STEPS, SEED } from './tutorial.js';
 
 const $ = id => document.getElementById(id), N = C.names;
 const KIND = { capital: 'CAPITAL SYSTEM', gate: 'GATE SYSTEM', junction: 'JUNCTION', mid: 'SYSTEM', outer: 'OUTER SYSTEM', frontier: 'FRONTIER SYSTEM', home: 'ENEMY HOME' };
@@ -22,7 +23,7 @@ const ICON = {
 const icon = c => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square">${ICON[c.type === 'mission' ? c.fam : c.type]}</svg>`;
 
 let g, view = new View($('map'));
-const ui = { sel: null, selBattle: null, card: null, tab: 'int', speed: 1, mark: 0 };
+const ui = { sel: null, selBattle: null, card: null, tab: 'int', speed: 1, mark: 0, tut: null, hint: null };
 window.sgs = { get g() { return g; }, ui, view };   // for the browser checks
 
 function odds(P, E) {
@@ -31,9 +32,10 @@ function odds(P, E) {
 }
 const routeName = k => { const end = g.P.find(p => p.spoke === k && (p.kind === 'home' || p.kind === 'frontier')); return `${end.name.toUpperCase()} ROUTE`; };
 
-function start(seed, saved) {
+function start(seed, saved, tutorial) {
   g = (saved && Game.load(saved)) || new Game(seed || (Date.now() % 100000));
-  Object.assign(ui, { sel: null, selBattle: null, card: null, tab: 'int', mark: Math.max(0, g.log.length - 6) });
+  Object.assign(ui, { sel: null, selBattle: null, card: null, tab: 'int', mark: Math.max(0, g.log.length - 6), tut: tutorial ? 0 : null, hint: null });
+  tutStep = -1;
   if (view.R0) view.reset();
   refresh();
 }
@@ -48,8 +50,9 @@ function top() {
   $('top').innerHTML = `<div class="ttl">${N.game}<small>${VERSION}</small></div>
     <div class="rd">ROUND ${g.round} · ${g.phase === 'plan' ? 'PLANNING' : g.phase === 'battle' ? 'BATTLE' : 'WAR OVER'}</div>
     <div class="ro">${cell('fuel', 'a')}${cell('drop', '')}${cell('army', '')}<div><b>${Math.round(g.morale)}</b><span>MORALE</span></div></div>`;
-  const last = g.log[g.log.length - 1];
-  $('bulletin').className = last.kind; $('bulletin').textContent = `R${last.r} › ${last.text}`;
+  // The strip under the map: the most pressing advice while planning, otherwise the latest news.
+  const last = g.log[g.log.length - 1], adv = g.phase === 'plan' ? g.advice().find(a => a.kind === 'bad' || a.kind === 'warn') : null;
+  $('bulletin').className = adv ? adv.kind : last.kind; $('bulletin').textContent = adv ? `INTELLIGENCE › ${adv.text}` : `R${last.r} › ${last.text}`;
 }
 
 // ---------- the ministries ----------
@@ -85,7 +88,7 @@ function tabSys() {
       h += `<div class="opb"><div><b class="am">${g.major(s) ? 'MAJOR OFFENSIVE' : 'OPERATION'} · ${f1(P)} vs ${f1(E)}</b> <span class="${cl}">${w}</span>
         <div class="sm2">${o.cards.map(id => C.cards[id].name).join(' · ')}</div><div class="sm2 dim">${g.retal[s] ? 'Free: retaliation' : costTxt(g.cost(s), true)} · ${notes}</div></div>
         <button class="plate btn sm" data-a="recall" data-s="${s}">RECALL</button></div>`;
-    } else h += `<div class="sm2 am">In reach. Play mission cards from your hand onto it. ${N.factions[p.owner]} cannot take ${C.weak[p.owner].toUpperCase()}.</div>`;
+    } else h += `<div class="sm2 am">In reach. Play mission cards from your hand onto it. ${N.factions[p.owner]} is weak to ${C.weak[p.owner].toUpperCase()} cards.</div>`;
   }
   p.worlds.forEach((w, i) => {
     const T = C.worlds[w.type], key = i === p.key;
@@ -215,7 +218,7 @@ function tabUni() {
     <div class="sm2 dim">Victory: take all three enemy homes. Destroyed so far: ${C.factions.filter(f => g.F[f].state === 'dead').length} of 3.</div>
     <div class="sm2 dim">Systems retaken ${g.stats.taken} · fallen ${g.stats.fallen} · defences held ${g.stats.held}</div></section>
     <section><h3>Your deck · ${g.deckSize()} cards</h3><div class="row"><button class="plate btn sm grow" data-a="deck">VIEW DECK</button><button class="plate btn sm grow" data-a="log">WAR LOG</button></div>
-    <div class="row" style="margin-top:6px"><button class="plate btn sm grow" data-a="help">HOW TO PLAY</button><button class="plate btn sm grow" data-a="ask">NEW WAR</button></div></section>`;
+    <div class="row" style="margin-top:6px"><button class="plate amber btn sm grow" data-a="asktut">TUTORIAL</button><button class="plate btn sm grow" data-a="help">RULES</button><button class="plate btn sm grow" data-a="ask">NEW WAR</button></div></section>`;
   return h;
 }
 
@@ -256,7 +259,37 @@ function deckbar() {
     <div id="hand">${cards || '<div class="sm2 dim" style="padding:20px">No cards in hand.</div>'}</div>${go}</div>`;
 }
 
-function refresh() { top(); side(); deckbar(); store(); if (g.over) gameOver(); else if (g.phase === 'plan' && g.offers.length && $('modal').hidden) offer(); }
+function refresh() { tutorial(); top(); side(); deckbar(); coach(); store(); if (g.over) gameOver(); else if (g.phase === 'plan' && g.offers.length && $('modal').hidden) offer(); }
+
+// ---------- the tutorial coach ----------
+// Moves past finished steps and steps that cannot be done, and opens the right tab when a step begins.
+let tutStep = -1;
+function tutorial() {
+  if (ui.tut == null) { ui.hint = null; return; }
+  if (g.over) { ui.tut = null; ui.hint = null; return; }
+  for (let guard = 0; guard < STEPS.length; guard++) {
+    const st = STEPS[ui.tut]; if (!st) { ui.tut = null; ui.hint = null; return; }
+    const fresh = tutStep !== ui.tut;
+    if ((fresh && st.skipIf && st.skipIf(g, ui)) || (st.done && st.done(g, ui))) { ui.tut++; continue; }
+    if (fresh) { tutStep = ui.tut; if (st.tab && g.phase === 'plan') ui.tab = st.tab; }
+    ui.hint = st.hint ? st.hint(g, ui) : null;
+    return;
+  }
+}
+function coach() {
+  const el = $('coach'), st = ui.tut == null ? null : STEPS[ui.tut];
+  document.querySelectorAll('.hl').forEach(x => x.classList.remove('hl'));
+  if (!st) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `<div class="ctx"><em>TUTORIAL · ${ui.tut + 1} OF ${STEPS.length}</em><p>${st.text(g, ui)}</p></div><div class="cbt">` +
+    (st.next ? `<button class="plate btn go" data-a="tnext">${st.last ? 'FINISH' : 'NEXT'}</button>` : '') +
+    (st.help ? `<button class="plate amber btn sm" data-a="thelp">${st.help}</button>` : '') +
+    (st.next ? '' : '<button class="plate btn sm" data-a="tnext">SKIP STEP</button>') +
+    '<button class="plate btn sm" data-a="tend">END TUTORIAL</button></div>';
+  if (st.hi) document.querySelectorAll(st.hi).forEach(x => x.classList.add('hl'));
+  // Bring the thing being pointed at into view, once per step.
+  if (st.hi && coach.shown !== ui.tut) { coach.shown = ui.tut; const x = document.querySelector('#panel .hl, #hand .hl, #tabs .hl'); if (x) x.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+}
 
 // ---------- overlays ----------
 function modal(html) { $('modal').innerHTML = `<div class="plate amber box">${html}</div>`; $('modal').hidden = false; }
@@ -338,11 +371,16 @@ document.addEventListener('click', e => {
       break;
     }
     case 'take': g.takeOffer(d.i == null ? null : +d.i); $('modal').hidden = true; break;
+    case 'tnext': ui.tut++; break;
+    case 'thelp': STEPS[ui.tut].do(g, ui); break;
+    case 'tend': ui.tut = null; break;
+    case 'tut': $('modal').hidden = true; try { localStorage.removeItem(SAVE); } catch {} start(SEED, null, true); return;
     case 'zin': view.zoomAt(1.5); return;
     case 'zout': view.zoomAt(1 / 1.5); return;
     case 'help': return help();
     case 'log': return logModal();
     case 'deck': return deckModal();
+    case 'asktut': return modal('<h2>Play the tutorial?</h2><p>It starts a new guided war. The war in progress will be lost.</p><button class="plate btn go" data-a="tut">START THE TUTORIAL</button><button class="plate btn" style="width:100%;margin-top:8px" data-a="close">KEEP PLAYING</button>');
     case 'ask': return modal('<h2>New war?</h2><p>The war in progress will be lost.</p><button class="plate btn go" data-a="new">START A NEW WAR</button><button class="plate btn" style="width:100%;margin-top:8px" data-a="close">KEEP PLAYING</button>');
     case 'close': $('modal').hidden = true; return;
     case 'new': $('modal').hidden = true; try { localStorage.removeItem(SAVE); } catch {} start(); return;
@@ -389,7 +427,7 @@ function frame(now) {
     if (g.phase !== ph) { ui.selBattle = null; ui.card = null; ui.tab = 'int'; refresh(); }
     else {
       for (const b of g.battles) { const bar = document.querySelector(`[data-bar="${b.id}"]`); if (bar) bar.style.width = b.fight.p * 100 + '%'; }
-      if ((slow += dt) > 0.5) { slow = 0; side(); }
+      if ((slow += dt) > 0.5) { slow = 0; side(); coach(); }
     }
   }
   view.draw(g, ui, now / 1000);
@@ -400,7 +438,12 @@ function frame(now) {
 
 const seed = +new URLSearchParams(location.search).get('seed') || 0;
 let saved = null; try { saved = seed ? null : JSON.parse(localStorage.getItem(SAVE)); } catch {}
-start(seed, saved);
+start(seed, saved, new URLSearchParams(location.search).has('tutorial'));
 view.resize();
-if (!localStorage.getItem('sgs.seen4')) { help(); try { localStorage.setItem('sgs.seen4', '1'); } catch {} }
+if (!localStorage.getItem('sgs.seen5') && !seed) {
+  try { localStorage.setItem('sgs.seen5', '1'); } catch {}
+  modal(`<h2>${N.game}</h2><p>A strategic deck-building war. You are ${N.fed} High Command, and three enemies are on their way.</p>
+    <p>The tutorial walks you through your first three rounds, one step at a time. It takes about three minutes.</p>
+    <button class="plate btn go" data-a="tut">PLAY THE TUTORIAL</button><button class="plate btn" style="width:100%;margin-top:8px" data-a="close">SKIP IT, I KNOW HOW TO PLAY</button>`);
+}
 requestAnimationFrame(frame);
