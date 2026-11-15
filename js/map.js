@@ -31,7 +31,7 @@ export function makeMap(seed = 1) {
       if (kind === 'capital' && i === 0) type = 'capital';
       else if ((kind === 'gate' || kind === 'home') && i === 0) type = 'fortress';
       else { let tot = 0; for (const k in w) tot += w[k]; let r = rnd() * tot; for (const k in w) { r -= w[k]; if (r <= 0) { type = k; break; } } }
-      out.push({ name: kind === 'capital' && i === 0 ? name : `${name} ${ROMAN[i]}`, type, owner: 'fed', since: 0, size: type === 'refinery' ? 1.5 : 0.8 + rnd() * 0.5, phase: rnd() * 6.283, tint: rnd() });
+      out.push({ name: kind === 'capital' && i === 0 ? name : `${name} ${ROMAN[i]}`, type, size: type === 'refinery' ? 1.5 : 0.8 + rnd() * 0.5, phase: rnd() * 6.283, tint: rnd() });
     }
     return out;
   };
@@ -39,7 +39,9 @@ export function makeMap(seed = 1) {
     const a = (deg + (rnd() - 0.5) * 4) * Math.PI / 180, rr = r + (rnd() - 0.5) * 0.025;
     name = name || names.pop();
     const p = { id: planets.length, name, kind, spoke, ring, x: Math.cos(a) * rr, y: Math.sin(a) * rr, adj: [], owner: 'fed',
-      bonus: 0, trait, relic: null, relicAt: 0, worlds: worldsFor(kind, spoke, name) };
+      bonus: 0, temp: 0, dev: 0, trait, relic: null, relicAt: 0, worlds: worldsFor(kind, spoke, name) };
+    // The key world: the one world in the system that is fought over.
+    p.key = kind === 'capital' || kind === 'gate' || kind === 'home' ? 0 : Math.floor(rnd() * p.worlds.length);
     planets.push(p); return p.id;
   };
   const link = (a, b) => { planets[a].adj.push(b); planets[b].adj.push(a); };

@@ -7,11 +7,17 @@ const col = o => C.color[o] || C.color.fed;
 const TEXT = '#e6eadc', DIM = 'rgba(230,234,220,0.62)', GROUND = '#0b0d0c';
 const MONO = '"Share Tech Mono", ui-monospace, monospace', HEAD = '"Chakra Petch", ui-monospace, monospace';
 
-// Totals for a battle, which is a set of fights (one per world).
-export function sum(b) {
-  let P = 0, E = 0, p = 0, open = 0, won = 0;
-  for (const f of b.fights) { P += f.P; E += f.E; p += f.p; if (!f.done) open++; else if (f.win && !f.evac) won++; }
-  return { P, E, p: p / b.fights.length, open, won, n: b.fights.length };
+// A battle's numbers in one place.
+export function sum(b) { const f = b.fight; return { P: f.P, E: f.E, p: f.p, open: f.done ? 0 : 1, won: f.done && f.win && !f.evac ? 1 : 0, evac: !!f.evac }; }
+
+// Small map symbols. A shield marks a system that needs defending; a reticle marks one you are attacking.
+function shield(c, x, y, s, stroke, fill) {
+  c.beginPath(); c.moveTo(x - s, y - s); c.lineTo(x + s, y - s); c.lineTo(x + s, y + s * 0.2); c.lineTo(x, y + s * 1.25); c.lineTo(x - s, y + s * 0.2); c.closePath();
+  c.fillStyle = fill; c.fill(); c.strokeStyle = stroke; c.lineWidth = 1.6; c.stroke();
+}
+function reticle(c, x, y, r, color) {
+  c.strokeStyle = color; c.lineWidth = 1.6; c.setLineDash([4, 3]); c.beginPath(); c.arc(x, y, r, 0, 7); c.stroke(); c.setLineDash([]);
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { c.beginPath(); c.moveTo(x + dx * (r - 3), y + dy * (r - 3)); c.lineTo(x + dx * (r + 5), y + dy * (r + 5)); c.stroke(); }
 }
 
 export class View {
@@ -86,7 +92,7 @@ export class View {
       for (let s = 0; s < 3; s++) {
         const o = g.ops[s]; if (!o) continue; hot.add(o.target);
         const from = g.P[o.target].adj.find(n => fl.has(n)); if (from == null) continue;
-        this.arrow(g.P[from], g.P[o.target], C.color.amber, [], g.count(s) ? g.opStrength(s).toFixed(0) : '', rad(g.P[from]), rad(g.P[o.target]));
+        this.arrow(g.P[from], g.P[o.target], C.color.amber, [], g.count(s) ? g.opStrength(s).toFixed(0) + ' v ' + g.opEnemy(s).toFixed(0) : '', rad(g.P[from]), rad(g.P[o.target]));
       }
     }
     // star systems
@@ -109,14 +115,27 @@ export class View {
       if (p.trait === 'shipyard') { c.beginPath(); c.moveTo(x - 4 * k, y - r - 3); c.lineTo(x, y - r - 8 * k); c.lineTo(x + 4 * k, y - r - 3); c.stroke(); }
       if (p.trait === 'depot') c.strokeRect(x - 3 * k, y - r - 9 * k, 6 * k, 6 * k);
       if (p.relic) { c.fillStyle = C.color.amber; c.beginPath(); c.arc(x + r + 2, y - r - 2, 2.2 * k, 0, 7); c.fill(); }
-      // one pip for each world, in the colour of whoever holds it
+      // one pip for each world, coloured by its kind
       const n = p.worlds.length, pw = 3 * Math.min(1.5, k + 0.2);
-      for (let i = 0; i < n; i++) { c.fillStyle = col(p.worlds[i].owner); c.fillRect(x - (n * (pw + 1) - 1) / 2 + i * (pw + 1), y + r + 2.5, pw, pw); }
-      if (g.phase === 'plan' && g.canTarget(p.id, null, fl)) {   // can be attacked this round
+      for (let i = 0; i < n; i++) { c.fillStyle = C.worlds[p.worlds[i].type].col; c.fillRect(x - (n * (pw + 1) - 1) / 2 + i * (pw + 1), y + r + 2.5, pw, pw); }
+      if (g.phase === 'plan' && g.canTarget(p.id, fl)) {   // can be attacked this round
         c.strokeStyle = C.color.amber; c.lineWidth = 1.4; const q = r + 4;
         for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { c.beginPath(); c.moveTo(x + sx * q, y + sy * (q - 4)); c.lineTo(x + sx * q, y + sy * q); c.lineTo(x + sx * (q - 4), y + sy * q); c.stroke(); }
       }
       if (ui.sel === p.id) { c.strokeStyle = C.color.amber; c.lineWidth = 1.6; c.strokeRect(x - r - 7, y - r - 7, (r + 7) * 2, (r + 7) * 2); }
+    }
+    // what needs defending, and what you are attacking
+    if (g.phase === 'plan') {
+      const dp = g.defPlan();
+      for (const th of g.threats) {
+        if (th.hidden) continue;
+        const p = g.P[th.to], [x, y] = this.xy(p), r = rad(p), D = dp.get(th).D, pin = g.pins(th);
+        const state = pin ? 0 : D >= th.str * 1.08 ? 0 : D >= th.str * 0.93 ? 1 : 2;
+        const colr = [col('fed'), C.color.amber, C.color.foundry][state];
+        if (state === 2) { c.globalAlpha = 0.35 + 0.35 * Math.sin(t * 6); c.strokeStyle = colr; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r + 7, 0, 7); c.stroke(); c.globalAlpha = 1; }
+        shield(c, x + r + 9, y - r - 5, 6 * Math.min(1.3, k + 0.3), colr, state === 2 ? 'rgba(255,106,77,0.35)' : 'rgba(12,16,14,0.95)');
+      }
+      for (let s = 0; s < 3; s++) { const o = g.ops[s]; if (o && o.cards.length) { const p = g.P[o.target], [x, y] = this.xy(p); reticle(c, x, y, rad(p) + 7, C.color.amber); } }
     }
     // battles
     for (const b of g.battles) {
@@ -124,11 +143,12 @@ export class View {
       c.lineWidth = 3.5; c.strokeStyle = col(b.f); c.beginPath(); c.arc(x, y, r, 0, 7); c.stroke();
       c.strokeStyle = col('fed'); c.beginPath(); c.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + st.p * Math.PI * 2); c.stroke();
       if (ui.selBattle === b.id) { c.strokeStyle = C.color.amber; c.lineWidth = 1.4; c.strokeRect(x - r - 9, y - r - 9, (r + 9) * 2, (r + 9) * 2); }
+      if (b.kind === 'def') shield(c, x + r + 8, y - r - 3, 6, col('fed'), 'rgba(12,16,14,0.95)'); else reticle(c, x, y, r + 5, C.color.amber);
       if (!st.open) {
-        const txt = `${st.won}/${st.n} ${b.kind === 'op' ? 'WON' : 'HELD'}`;
+        const txt = st.evac ? 'RECALLED' : b.kind === 'op' ? (st.won ? 'TAKEN' : 'FAILED') : (st.won ? 'HELD' : 'LOST');
         c.font = '600 11px ' + HEAD; c.textAlign = 'center'; c.textBaseline = 'middle';
         const tw = c.measureText(txt).width + 10; c.fillStyle = 'rgba(12,16,14,0.95)'; c.fillRect(x - tw / 2, y - r - 22, tw, 16);
-        c.fillStyle = st.won * 2 > st.n ? col('fed') : st.won ? C.color.amber : C.color.foundry; c.fillText(txt, x, y - r - 14);
+        c.fillStyle = st.won || st.evac ? col('fed') : C.color.foundry; c.fillText(txt, x, y - r - 14);
         continue;
       }
       // Fleet ships: the count shows each side's strength.
@@ -157,9 +177,9 @@ export class View {
   }
 }
 
-// The inside of one star system: its star and its worlds, each drawn by kind and ringed in its holder's colour.
-// Planned missions show as tags; during a battle each world shows its own fight.
-export function drawSystem(cv, g, p, missions, battle, t) {
+// The inside of one star system: its star and its worlds, each drawn by kind. The key world, the only one fought
+// over, is bracketed; planned missions and the live fight are shown on it.
+export function drawSystem(cv, g, p, opCards, battle, t) {
   const r = cv.getBoundingClientRect(); if (!r.width) return;
   const d = Math.min(2, window.devicePixelRatio || 1);
   if (cv.width !== Math.round(r.width * d)) { cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d); }
@@ -184,18 +204,21 @@ export function drawSystem(cv, g, p, missions, battle, t) {
     c.fillStyle = 'rgba(0,0,0,0.5)'; c.beginPath(); c.arc(x + R * 0.75, y, R * 1.05, 0, 7); c.fill();   // the night side, away from the star
     c.restore();
     if (wd.type === 'refinery') { c.strokeStyle = 'rgba(240,220,170,0.55)'; c.lineWidth = 1.4; c.beginPath(); c.ellipse(x, y, R * 1.7, R * 0.42, -0.3, 0, 7); c.stroke(); }
-    c.strokeStyle = col(wd.owner); c.lineWidth = 1.6; c.beginPath(); c.arc(x, y, R + 3.5, 0, 7); c.stroke();
+    const key = i === p.key;
+    c.strokeStyle = col(p.owner); c.lineWidth = key ? 1.8 : 1; c.globalAlpha = key ? 1 : 0.55; c.beginPath(); c.arc(x, y, R + 3.5, 0, 7); c.stroke(); c.globalAlpha = 1;
+    if (key) { c.strokeStyle = C.color.amber; c.lineWidth = 1.2; const q = R + 8; for (const [ax, ay] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { c.beginPath(); c.moveTo(x + ax * q, y + ay * (q - 5)); c.lineTo(x + ax * q, y + ay * q); c.lineTo(x + ax * (q - 5), y + ay * q); c.stroke(); } }
     c.font = '10px ' + MONO; c.fillStyle = DIM; c.textBaseline = 'top';
-    c.fillText(wd.name.split(' ').pop().toUpperCase(), x, y + R + 8);
+    c.fillText(key ? 'KEY WORLD' : wd.name.split(' ').pop().toUpperCase(), x, y + R + 11);
     const tag = (txt, bg, fg) => {
       c.font = '600 10px ' + HEAD; const tw = c.measureText(txt).width + 8;
-      c.fillStyle = bg; c.fillRect(x - tw / 2, y - R - 23, tw, 14); c.fillStyle = fg; c.textBaseline = 'middle'; c.fillText(txt, x, y - R - 15.5);
+      c.fillStyle = bg; c.fillRect(x - tw / 2, y - R - 31, tw, 14); c.fillStyle = fg; c.textBaseline = 'middle'; c.fillText(txt, x, y - R - 23.5);
     };
-    const f = battle && battle.fights.find(q => q.wi === i);
-    if (f) {   // this world's own fight
-      const bw = 44; c.fillStyle = col(battle.f); c.fillRect(x - bw / 2, y - R - 12, bw, 4);
-      c.fillStyle = col('fed'); c.fillRect(x - bw / 2, y - R - 12, bw * f.p, 4);
+    if (!key) return;
+    const f = battle && battle.fight;
+    if (f) {   // the fight for the system happens here
+      const bw = 50; c.fillStyle = col(battle.f); c.fillRect(x - bw / 2, y - R - 14, bw, 4);
+      c.fillStyle = col('fed'); c.fillRect(x - bw / 2, y - R - 14, bw * f.p, 4);
       if (f.done) tag(f.evac ? 'RECALLED' : f.win ? (battle.kind === 'op' ? 'TAKEN' : 'HELD') : (battle.kind === 'op' ? 'REPELLED' : 'LOST'), f.win || f.evac ? col('fed') : C.color.foundry, '#0b0d0c');
-    } else if (missions && missions[i]) tag(C.missions[missions[i]].name, C.color.amber, '#141204');
+    } else if (opCards && opCards.length) tag(`${opCards.length} MISSION${opCards.length > 1 ? 'S' : ''}`, C.color.amber, '#141204');
   });
 }
