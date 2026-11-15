@@ -174,3 +174,11 @@ section { margin-bottom: 10px; }
 .hl { outline: 2px solid var(--amber); outline-offset: 2px; animation: hl 1s ease-in-out infinite alternate; }
 .card.hl, .plate.hl { clip-path: none; }
 @keyframes hl { from { outline-color: rgba(245, 213, 71, 0.25); } to { outline-color: rgba(245, 213, 71, 1); } }
+
+/* ---------- the bar for the system you tapped: its fleets as pieces, and what you can do there ---------- */
+#play.pc { flex-wrap: wrap; gap: 6px; }
+#play.pc b { margin-right: 2px; }
+.chip { min-width: 46px; color: var(--cyan); }
+.chip.on { color: var(--amber); }
+.trk span.off { opacity: 0.4; }
+#top .rd { margin-right: auto; }

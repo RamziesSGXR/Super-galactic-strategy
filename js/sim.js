@@ -1,15 +1,18 @@
 // The whole game as rules. No DOM, so it runs the same in the browser and in `npm run sim`.
-// A round: draw a hand -> PLAN (play cards, give orders through the ministries) -> BATTLE (live) -> the enemies'
-// turn -> income -> discard and draw again.
 //
-// HANDOFF: a battle is one fight on the system's key world, shown as a single bar. This is the place where the
-// other games would take over later (a space battle to reach the world, a ground battle on it), so it is kept
-// simple on purpose. Everything a fight needs is in `_fight()` and `tick()`; its result is only `fight.win`.
+// The war is three games of moves played side by side, one per war front. A round goes front by front:
+//   YOUR TURN on the front (move fleets one system, build ships, play cards) -> your attacks are fought
+//   -> THE ENEMY'S TURN on that front (it builds, moves, attacks) -> its attacks are fought -> the next front.
+// After the last front: income, a new hand, the next round.
+//
+// HANDOFF: a battle is one fight for one system, shown as a single bar. This is the place where the other games
+// would take over later (a space battle between the fleets, a ground battle on the key world), so it is kept simple
+// on purpose. Everything a fight needs is in `_fight()` and `tick()`; its result is only `fight.win`.
 import { C } from './config.js';
 import { makeMap } from './map.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const N = C.names;
+const N = C.names, S = C.ship.str;
 const when = c => c.when || (c.type === 'battle' ? 'battle' : 'plan');
 
 export class Game {
@@ -18,35 +21,34 @@ export class Game {
     this.rs = (seed * 7919 + 13) | 0;
     this.map = makeMap(seed);
     this.P = this.map.planets;       // star systems
-    this.round = 1; this.phase = 'plan'; this.over = null;
+    this.round = 1; this.phase = 'plan'; this.stage = 'you'; this.fi = -1; this.over = null;
     this.res = { ...C.start.res }; this.morale = C.start.morale;
     this.F = {};
-    C.factions.forEach((f, s) => {
-      const a = C.arrive[f];
-      this.F[f] = { id: f, sector: s, state: 'wait', at: a.round + Math.round((this.rnd() * 2 - 1) * a.vary), force: 0, cards: [], dig: 0, home: this.map.home[s] };
+    C.fronts.forEach((fr, fi) => {
+      const a = C.arrive[fr.f];
+      this.F[fr.f] = { id: fr.f, front: fi, state: 'wait', at: a.round + Math.round((this.rnd() * 2 - 1) * a.vary), pool: 0, cards: [], dig: 0, home: this.map.home[fi], played: null };
     });
+    // fleets: the pieces. { id, owner, at, ships, moved, order, wait, strike, vet, flank }
+    this.fleets = []; this.fid = 0;
+    this._spawn('fed', 0, C.start.fleets[0]);
+    C.fronts.forEach((fr, fi) => { const p = this.P.filter(q => q.front === fi && q.ring === 2).sort((a, b) => a.id - b.id)[1]; this._spawn('fed', p.id, C.start.fleets[fi + 1]); });
     // the deck
     this.drawPile = []; this.hand = []; this.discard = []; this.offers = [];
     for (const id in C.cards) for (let i = 0; i < (C.cards[id].starter || 0); i++) this.drawPile.push(id);
     this._shuffle(this.drawPile);
-    // orders
-    this.ops = [null, null, null];   // one operation per front (a front is one enemy): { target, cards: [] }
-    this.directive = null;           // { sector, mode: 'attack' | 'defend' }
-    this.mob = null;                 // { s, at, until }: a front being mobilised for a major offensive
-    this.prop = { rally: false, newsreel: false };
     this.policy = 'balanced';        // Ministry of Humanity
-    this.route = null;               // Ministry of Employment: the priority route, 0 to 5
+    this.priority = null;            // Ministry of Employment: the priority front, 0 to 2
     this.used = { broadcast: false };
     this.secondary = true;
-    this.threats = [];               // enemy attacks announced for the coming battle phase
+    this.capHit = [];                // enemies that have struck the capital this round
     this.battles = []; this.bid = 0;
-    this.retal = [false, false, false];
+    this.moves = [];                 // fleet moves just made, for the screen to animate: { owner, from, to, ships }
     this.noRecruit = false;
     this.log = [];
     this.stats = { taken: 0, fallen: 0, opsWon: 0, opsLost: 0, held: 0 };
     if (saved) return this._restore(saved);
     this.say('info', 'Ministry of Truth: every world on the map flies the ' + N.fed + ' flag. Long may it last.');
-    this._arrivals(); this._drawHand();
+    this._arrivals(); this._drawHand(); this._firstFront();
   }
 
   rnd() {
@@ -57,22 +59,20 @@ export class Game {
   }
   say(kind, text) { this.log.push({ r: this.round, kind, text }); }
 
-  // ---------- saving ----------
+  // ---------- saving (only while you are planning) ----------
   save() {
-    const k = ['seed', 'rs', 'round', 'res', 'morale', 'F', 'drawPile', 'hand', 'discard', 'offers', 'mob', 'policy', 'route', 'used', 'threats', 'retal', 'noRecruit', 'stats', 'over'];
-    const d = { v: 4, log: this.log.slice(-80), P: this.P.map(p => [p.owner, p.bonus, p.relicAt, p.dev, p.temp]) };
+    const k = ['seed', 'rs', 'round', 'fi', 'res', 'morale', 'F', 'fleets', 'fid', 'drawPile', 'hand', 'discard', 'offers', 'policy', 'priority', 'used', 'capHit', 'noRecruit', 'stats', 'over'];
+    const d = { v: 6, log: this.log.slice(-80), P: this.P.map(p => [p.owner, p.bonus, p.relicAt, p.dev, p.temp, p.built, p.trap, p.yard || 0]) };
     for (const x of k) d[x] = this[x];
-    // Orders in progress are not saved: their cards go back to the hand.
-    d.hand = [...this.hand, ...this.ops.flatMap(o => (o ? o.cards : []))];
     return d;
   }
   _restore(d) {
     for (const k in d) if (k !== 'v' && k !== 'P') this[k] = d[k];
-    d.P.forEach(([o, b, ra, dv, tp], i) => { const p = this.P[i]; p.owner = o; p.bonus = b; p.relicAt = ra; p.dev = dv; p.temp = tp || 0; });
-    this.phase = this.over ? 'over' : 'plan';
+    d.P.forEach(([o, b, ra, dv, tp, bu, tr, yd], i) => Object.assign(this.P[i], { owner: o, bonus: b, relicAt: ra, dev: dv, temp: tp, built: bu, trap: tr, yard: yd }));
+    this.phase = this.over ? 'over' : 'plan'; this.stage = 'you';
     return this;
   }
-  static load(d) { return d && d.v === 4 ? new Game(d.seed, d) : null; }
+  static load(d) { return d && d.v === 6 ? new Game(d.seed, d) : null; }
 
   // ---------- the board ----------
   linked(owner, root) {
@@ -83,41 +83,43 @@ export class Game {
     return seen;
   }
   fedLinked() { return this.linked('fed', 0); }
-  facLinked(f) { return this.linked(f, this.F[f].home); }
   keyWorld(p) { return p.worlds[p.key]; }
-  // An enemy system can be attacked if it is next to a system of yours that a lane reaches.
-  canTarget(pid, fl = this.fedLinked()) {
-    const p = this.P[pid]; return !!p && p.owner !== 'fed' && p.adj.some(n => fl.has(n));
-  }
-  targets(s) { const fl = this.fedLinked(), f = C.factions[s]; return this.P.filter(p => p.owner === f && this.canTarget(p.id, fl)).map(p => p.id); }
-  frontOf(pid) { const p = this.P[pid]; return p && p.owner !== 'fed' ? C.factions.indexOf(p.owner) : -1; }
-  // A system's own defence when the Federation holds it.
+  facOf(p) { return p.front < 0 ? null : C.fronts[p.front].f; }
+  atWar(fi) { return fi >= 0 && this.F[C.fronts[fi].f].state === 'active'; }
+  // Which systems you may act on this turn: the front being played, the capital, and any front not yet at war.
+  canAct(pid) { const p = this.P[pid]; return this.phase === 'plan' && (this.fi < 0 || p.id === 0 || p.front === this.fi || !this.atWar(p.front)); }
+  fleetsAt(pid, owner) { return this.fleets.filter(f => f.at === pid && f.owner === owner); }
+  shipsAt(pid, owner) { return this.fleetsAt(pid, owner).reduce((a, f) => a + f.ships, 0); }
+  _spawn(owner, at, ships, moved = false) { const f = { id: ++this.fid, owner, at, ships, moved, order: null, wait: 0, strike: false, vet: false, flank: false }; this.fleets.push(f); return f; }
+  // A fleet's strength. Attacking, it may carry an Alpha Strike, and Flanking Orders count the other fleets with it.
+  fleetStr(f, attacking = false, others = 0) { return f.ships * S + (f.vet ? 3 : 0) + (attacking && f.strike ? 4 : 0) + (attacking && f.flank ? 2 * others : 0); }
+  // A system's own defence when the Federation holds it, with no fleet there.
   fort(p) {
-    let v = C.fort[p.kind] + p.bonus + p.temp + (p.trait === 'bastion' ? C.traits.bastion.fort : 0) + (this.route != null && p.spoke === this.route ? C.route.fort : 0);
+    let v = (p.id === 0 ? C.fort.capital : C.fort.sys) + p.bonus + p.temp + (this.priority != null && p.front === this.priority ? C.priority.fort : 0);
     for (const w of p.worlds) v += C.worlds[w.type].fort || 0;
     return v;
   }
-  // A linked Federation neighbour of this system with the given strategic trait.
-  near(pid, trait, fl = this.fedLinked()) { return this.P[pid].adj.some(n => fl.has(n) && this.P[n].trait === trait); }
+  // What an attack by enemy f on your system would meet: its own defence, plus every fleet you have there.
+  defence(pid, f, fl = this.fedLinked()) {
+    const p = this.P[pid];
+    let v = this.fort(p) * (fl.has(pid) ? 1 : C.cut) * (f === 'veil' && pid !== 0 ? C.enemy.veil.sneak : 1);   // the Veil slips past defences, but not the capital's
+    for (const x of this.fleetsAt(pid, 'fed')) v += this.fleetStr(x);
+    return v;
+  }
+  // What an attack by you on an enemy system would meet: its own defence, plus every enemy fleet there.
   garrison(pid) {
     const p = this.P[pid], f = p.owner; if (f === 'fed') return 0;
-    const F = this.F[f];
-    let g = C.garr.base + C.garr.ring * p.ring + F.force * C.garr.force + (p.trait === 'bastion' ? C.traits.bastion.fort : 0) + (F.dig >= this.round ? C.garr.dig : 0);
-    if (this.keyWorld(p).type === 'fortress') g += C.garr.fortress;
-    // The home is fed by every system the enemy holds: roll back the branches before going for the trunk.
-    if (p.kind === 'home') g = (g + C.garr.perPlanet * this.P.filter(q => q.owner === f).length) * C.garr.home;
-    if (!this.facLinked(f).has(pid)) g *= C.cut;
-    return g;
+    let v = (p.kind === 'home' ? C.garr.home : C.garr.sys) + (this.keyWorld(p).type === 'fortress' ? C.garr.fortress : 0) + (this.F[f].dig >= this.round ? C.garr.dig : 0);
+    for (const x of this.fleetsAt(pid, f)) v += x.ships * S;
+    return v;
   }
-  // What an operation on this system faces: the garrison, plus part of any attack it would pin there.
-  enemyAt(pid) {
-    return this.garrison(pid) + this.threats.filter(t => t.from === pid).reduce((a, t) => a + t.str * C.pin, 0);
-  }
-  // Does one of your operations pin this announced attack? It must strike the system the attack launches from,
-  // and be at least half as strong as the attack.
-  pins(t) {
-    const o = this.ops[t.s];
-    return !!o && o.target === t.from && this.count(t.s) > 0 && this.opStrength(t.s) >= t.str * C.pinNeed;
+  // The enemy fleets beside one of your systems that could strike it on their next turn, and their combined strength.
+  threat(pid) {
+    const p = this.P[pid]; if (p.owner !== 'fed') return null;
+    const by = {};
+    for (const n of p.adj) for (const x of this.fleets) if (x.at === n && x.owner !== 'fed' && (p.id === 0 || p.front === this.F[x.owner].front)) by[x.owner] = (by[x.owner] || 0) + x.ships * S;
+    let best = null; for (const f in by) if (!best || by[f] > best.str) best = { f, str: by[f] };
+    return best;
   }
 
   // ---------- the deck ----------
@@ -133,8 +135,9 @@ export class Game {
       this.hand.push(this.drawPile.pop());
     }
   }
-  deckCount(id) { const n = a => a.filter(x => x === id).length; return n(this.drawPile) + n(this.hand) + n(this.discard) + this.ops.reduce((a, o) => a + (o ? n(o.cards) : 0), 0); }
-  deckSize() { return this.drawPile.length + this.hand.length + this.discard.length + this.ops.reduce((a, o) => a + (o ? o.cards.length : 0), 0); }
+  traps() { return this.P.filter(p => p.trap).map(p => p.trap); }
+  deckCount(id) { const n = a => a.filter(x => x === id).length; return n(this.drawPile) + n(this.hand) + n(this.discard) + n(this.traps()); }
+  deckSize() { return this.drawPile.length + this.hand.length + this.discard.length + this.traps().length; }
   // After a major victory you are offered three cards and may add one to your deck.
   _offer(why) {
     const ids = Object.keys(C.cards).filter(k => C.cards[k].w), pick = [];
@@ -151,163 +154,105 @@ export class Game {
     return true;
   }
   give(id, why) { this.hand.push(id); this.say('good', `Relic card (${why}): ${C.cards[id].name}.`); }
+  canPay(c = {}) { for (const k in c) if (c[k] > this.res[k] + 1e-9) return false; return true; }
+  _pay(c = {}) { for (const k in c) this.res[k] -= c[k]; }
 
-  // ---------- operations ----------
-  count(s) { const o = this.ops[s]; return o ? o.cards.length : 0; }
-  major(s) { const d = this.directive; return !!(d && d.mode === 'attack' && d.sector === s); }
-  opCap(s) { return this.major(s) ? C.op.major : C.op.general; }
-  fuelFor(pid) {
-    const p = this.P[pid]; let v = C.op.fuel + C.op.fuelRing * p.ring;
-    if (this.near(pid, 'depot')) v -= C.traits.depot.fuel;
-    if (this.route != null && p.spoke === this.route) v -= C.route.fuel;
-    return Math.max(1, v);
+  // ---------- fleets: your orders ----------
+  // Order a fleet to an adjacent system: it moves there if the system is yours, and attacks if it is not.
+  // Ordering it to where it already is cancels the order. Orders are carried out when you end the turn.
+  order(fid, to) {
+    const f = this.fleets.find(x => x.id === fid);
+    if (!f || f.owner !== 'fed' || f.moved || !this.canAct(f.at)) return false;
+    if (to === f.at || to == null) { f.order = null; return true; }
+    if (!this.P[f.at].adj.includes(to)) return false;
+    f.order = to; return true;
   }
-  cost(s) {
-    const o = this.ops[s], c = { fuel: 0, drop: 0, army: 0 };
-    if (!o || !o.cards.length || this.retal[s]) return c;
-    c.fuel = this.fuelFor(o.target);
-    for (const id of o.cards) for (const k in C.cards[id].cost) c[k] += C.cards[id].cost[k];
-    return c;
-  }
-  totalCost() {
-    const t = { fuel: 0, drop: 0, army: 0 };
-    for (let s = 0; s < 3; s++) { const c = this.cost(s); for (const k in t) t[k] += c[k]; }
-    return t;
-  }
-  canPay(extra = {}) { const t = this.totalCost(); for (const k in t) if (t[k] + (extra[k] || 0) > this.res[k] + 1e-9) return false; return true; }
-  dirBoost() { return this.prop.rally ? C.dir.rallied : C.dir.boost; }
-  // Everything that scales an operation on this front: supply reach, a shipyard next door, the directive.
-  opMult(s) {
-    const o = this.ops[s]; if (!o) return 1;
-    let v = 1 - C.reach * (this.P[o.target].ring - 1);
-    if (this.near(o.target, 'shipyard')) v *= C.traits.shipyard.mult;
-    const d = this.directive;
-    if (d) v *= d.mode === 'attack' ? (d.sector === s ? this.dirBoost() : 1) : C.dir.drain;
-    return v;
-  }
-  // One mission card's strength on a system: more against the enemy's weak point, more if it suits the key world.
-  cardStr(id, pid) {
-    const c = C.cards[id], p = this.P[pid];
-    return c.str * (1 + (C.weak[p.owner] === c.fam ? C.weakAdd : 0) + (C.worlds[this.keyWorld(p).type].fav === c.fam ? C.favAdd : 0));
-  }
-  opStrength(s) {
-    const o = this.ops[s]; if (!o || !o.cards.length) return 0;
-    let v = 0; for (const id of o.cards) v += this.cardStr(id, o.target);
-    return v * this.opMult(s) + (this.retal[s] ? C.retal : 0);
-  }
-  opEnemy(s) {
-    const o = this.ops[s]; if (!o) return 0;
-    let e = this.enemyAt(o.target); for (const id of o.cards) if (C.cards[id].sap) e *= C.cards[id].sap;
-    return e;
-  }
-  // Take an operation's cards back into your hand.
-  recall(s) { const o = this.ops[s]; if (!o || this.phase !== 'plan') return false; this.hand.push(...o.cards); this.ops[s] = null; return true; }
-  // Mobilisation: a major offensive (the attack directive) has to be prepared a round ahead.
-  mobilise(s, free = false) {
-    if (this.phase !== 'plan' || this.F[C.factions[s]].state !== 'active' || (this.mob && this.mob.s === s && !free)) return false;
-    if (!free) { if (!this.canPay({ fuel: C.mob.fuel })) return false; this.res.fuel -= C.mob.fuel; }
-    this.mob = { s, at: this.round + (free ? 0 : 1), until: this.round + C.mob.last - (free ? 1 : 0) };
-    if (this.directive && this.directive.mode === 'attack' && this.directive.sector !== s) { this.directive = null; this._trim(); }
+  // Join every fleet of yours at a system that has no order into one.
+  combine(pid) {
+    if (!this.canAct(pid)) return false;
+    const fs = this.fleetsAt(pid, 'fed').filter(f => f.order == null); if (fs.length < 2) return false;
+    const a = fs[0];
+    for (const b of fs.slice(1)) { a.ships += b.ships; a.moved = a.moved || b.moved; a.vet = a.vet || b.vet; a.strike = a.strike || b.strike; a.flank = a.flank || b.flank; this.fleets.splice(this.fleets.indexOf(b), 1); }
     return true;
   }
-  mobReady(s) { return !!(this.mob && this.mob.s === s && this.round >= this.mob.at); }
-  setDirective(sector, mode) {
-    if (this.phase !== 'plan') return false;
-    const d = this.directive;
-    if (sector == null || (d && d.sector === sector && d.mode === mode)) { this.directive = null; this.prop.newsreel = false; }
-    else {
-      if (mode === 'attack' && !this.mobReady(sector)) return false;
-      // A defence order needs something to defend: an attack announced on that front.
-      if (mode === 'defend' && !this.threats.some(t => t.s === sector)) return false;
-      this.directive = { sector, mode };
-    }
-    this._trim(); return true;
+  // Break a fleet in two.
+  split(fid) {
+    const f = this.fleets.find(x => x.id === fid);
+    if (!f || f.owner !== 'fed' || f.ships < 2 || !this.canAct(f.at)) return false;
+    const n = Math.floor(f.ships / 2); f.ships -= n; const g = this._spawn('fed', f.at, n, f.moved); g.vet = f.vet; return true;
   }
-  // Without the offensive, an operation falls back to the size of a general attack: the extra cards come back.
-  _trim() { for (let s = 0; s < 3; s++) { const o = this.ops[s]; if (o) while (o.cards.length > this.opCap(s)) this.hand.push(o.cards.pop()); } }
-  // The automatic defence of a threatened system: its own forts, plus Army sent if a lane still reaches it.
-  defence(t, army = this.res.army, fl = this.fedLinked()) {
-    const p = this.P[t.to]; let D = this.fort(p), n = 0;
-    if (fl.has(t.to)) {
-      n = clamp(Math.ceil((t.str * C.def.margin - D) / C.def.perArmy), 0, Math.min(Math.floor(army), C.def.max));
-      D += n * C.def.perArmy;
-    } else D *= C.cut;
-    if (t.to === 0) D += C.capitalRally;
-    const d = this.directive;
-    if (d) D *= d.mode === 'defend' ? (d.sector === t.s ? this.dirBoost() : 1) : C.dir.drain;
-    return { D, n };
+  // What one ship costs at this system. The key world's kind and the priority front make it cheaper.
+  shipCost(p) {
+    const c = { ...C.ship.cost }, t = this.keyWorld(p).type;
+    if (t === 'refinery') c.fuel = 0; if (t === 'forge') c.army = 0; if (t === 'colony') c.drop = 0;
+    if (this.priority != null && p.front === this.priority) c.fuel = Math.max(0, c.fuel - C.priority.fuel);
+    return c;
   }
-
-  // The defence each announced attack will really meet this round: the Army left after your operations is shared
-  // out in the order the battles are fought (nearest the capital first). Returns a Map from threat to { D, n }.
-  defPlan() {
-    const fl = this.fedLinked(), out = new Map(); let army = this.res.army - this.totalCost().army;
-    for (const t of [...this.threats].sort((a, b) => this.P[a.to].ring - this.P[b.to].ring)) {
-      const d = this.defence(t, Math.max(0, army), fl); out.set(t, d); if (!this.pins(t)) army -= d.n;
-    }
-    return out;
+  canBuild(pid) { const p = this.P[pid]; return !!p && p.owner === 'fed' && !p.built && this.canAct(pid) && this.fedLinked().has(pid) && this.canPay(this.shipCost(p)); }
+  // Build one ship at a system of yours: one per system per round. It can move from next round.
+  build(pid) {
+    if (!this.canBuild(pid)) return false;
+    const p = this.P[pid]; this._pay(this.shipCost(p)); p.built = true;
+    if (this.keyWorld(p).type === 'fortress' && (p.yard || 0) < 3) { p.yard = (p.yard || 0) + 1; p.bonus++; }
+    this._spawn('fed', pid, 1, true); return true;
   }
 
   // ---------- playing cards ----------
-  // Can card i of the hand be played on this target? target is a system id, or a battle id during the fighting.
-  // Returns { ok } or { ok: false, why }.
-  canPlay(i, target) {
+  // t is what the card is played on: { fleet } for a boost, { sys } for a trap or an order, { battle } in a fight.
+  canPlay(i, t = {}) {
     const id = this.hand[i], c = C.cards[id], no = why => ({ ok: false, why });
     if (!c || this.over) return no('');
     if (c.type === 'dissent') return no('Dissent cannot be played. The Ministry of Truth can remove it.');
-    if (when(c) !== this.phase) return no(when(c) === 'battle' ? 'Played during a battle.' : 'Played while planning.');
+    if (when(c) !== this.phase) return no(when(c) === 'battle' ? 'Played during a battle.' : 'Played on your turn.');
     if (this.phase === 'battle') {
-      const b = this.battles.find(x => x.id === target);
+      const b = this.battles.find(x => x.id === t.battle);
       if (!b || b.fight.done) return no('Tap a battle still being fought.');
-      if (id === 'evac' && b.kind !== 'op') return no('Only your own operations can be recalled.');
+      if (id === 'evac' && b.kind !== 'op') return no('Only your own attacks can be recalled.');
       return { ok: true };
     }
-    const p = this.P[target];
-    if (c.type === 'mission') {
-      if (!p || p.owner === 'fed') return no('Tap an enemy system marked in amber.');
-      if (!this.canTarget(target)) return no('Out of reach. Take a system next to it first.');
-      const s = this.frontOf(target), o = this.ops[s];
-      if (o && o.target !== target) return no(`One operation per front. Recall the one on ${this.P[o.target].name} first.`);
-      if (this.count(s) >= this.opCap(s)) return no(this.major(s) ? 'A major offensive carries four missions.' : 'A general attack carries two missions. Mobilise for a major offensive.');
-      const extra = { ...c.cost }; if (!this.count(s) && !this.retal[s]) extra.fuel = (extra.fuel || 0) + this.fuelFor(target);
-      if (!this.retal[s] && !this.canPay(extra)) return no('Not enough to pay for it.');
+    if (c.type === 'boost' || c.target === 'fleet') {
+      const f = this.fleets.find(x => x.id === t.fleet);
+      if (!f || f.owner !== 'fed') return no('Tap one of your fleets.');
+      if (!this.canAct(f.at)) return no('That fleet is on another front. Its turn comes later this round.');
+      if (id === 'forced' && !f.moved) return no('That fleet has not moved yet.');
       return { ok: true };
     }
-    if (c.needs === 'planet' && !(p && p.owner === 'fed')) return no('Tap one of your own systems.');
-    if (c.needs === 'directive' && (!this.directive || this.prop.rally)) return no('Needs a major offensive or a defence order this round.');
-    if (c.needs === 'offensive' && (!this.major(this.directive ? this.directive.sector : -1) || this.prop.newsreel)) return no('Needs a major offensive this round.');
-    if (c.needs === 'front') { const s = p ? this.frontOf(target) : -1; if (s < 0 || this.mobReady(s)) return no('Tap an enemy system on the front to mobilise.'); }
+    if (c.type === 'trap' || c.type === 'order' || c.target === 'system') {
+      const p = this.P[t.sys];
+      if (!p || p.owner !== 'fed') return no('Tap one of your own systems.');
+      if (!this.canAct(p.id)) return no('That system is on another front. Its turn comes later this round.');
+      if (c.type === 'trap' && p.trap) return no('That system already has a trap.');
+      if (id === 'shipyard' && !this.fedLinked().has(p.id)) return no('No lane reaches that system.');
+    }
     if (c.cost && !this.canPay(c.cost)) return no('Not enough to pay for it.');
     return { ok: true };
   }
-  play(i, target) {
-    if (!this.canPlay(i, target).ok) return false;
+  play(i, t = {}) {
+    if (!this.canPlay(i, t).ok) return false;
     const id = this.hand[i], c = C.cards[id], r = this.res;
     const add = (k, n) => { r[k] = Math.min(C.resMax, r[k] + n); }, mor = n => { this.morale = clamp(this.morale + n, 0, 100); };
-    this.hand.splice(i, 1);
-    if (c.type === 'mission') {
-      const s = this.frontOf(target);
-      if (!this.ops[s]) this.ops[s] = { target, cards: [] };
-      this.ops[s].cards.push(id); return true;
-    }
-    for (const k in c.cost || {}) r[k] -= c.cost[k];
+    this.hand.splice(i, 1); this._pay(c.cost);
+    const f = this.fleets.find(x => x.id === t.fleet), p = this.P[t.sys];
     if (this.phase === 'battle') {
-      const f = this.battles.find(x => x.id === target).fight;
-      if (id === 'support') f.P += 5; else if (id === 'armada') f.P += 10; else if (id === 'blockade') f.E *= 0.7; else { f.done = true; f.evac = true; }
+      const ft = this.battles.find(x => x.id === t.battle).fight;
+      if (id === 'support') ft.P += 5; else if (id === 'armada') ft.P += 10; else if (id === 'blockade') ft.E *= 0.7; else { ft.done = true; ft.evac = true; }
     } else switch (id) {
-      case 'garrison': this.P[target].temp += 4; break;
-      case 'fortify': this.P[target].bonus += 3; break;
-      case 'bulwark': this.P[target].bonus += 8; break;
+      case 'strike': f.strike = true; break;
+      case 'veteran': f.vet = true; break;
+      case 'flank': f.flank = true; break;
+      case 'forced': f.moved = false; break;
+      case 'flagship': f.ships += 3; break;
+      case 'mines': case 'ambush': case 'decoy': p.trap = id; return true;   // a trap stays on the map, not in the discard pile
+      case 'shipyard': this._spawn('fed', p.id, 1, true); break;
+      case 'fortify': p.bonus += 3; break;
+      case 'bulwark': p.bonus += 8; break;
       case 'bonds': mor(10); break;
       case 'broadcast': add('drop', 4); break;
-      case 'rally': this.prop.rally = true; break;
-      case 'newsreel': this.prop.newsreel = true; break;
       case 'convoy': add('fuel', 5); break;
       case 'levy': add('army', 5); mor(-3); break;
       case 'cache': add('fuel', 10); break;
       case 'reserve': add('army', 8); break;
       case 'anthem': mor(20); add('drop', 3); break;
-      case 'snap': this.mobilise(this.frontOf(target), true); break;
     }
     if (c.type !== 'relic') this.discard.push(id);   // a relic is spent; everything else comes round again
     return true;
@@ -320,7 +265,6 @@ export class Game {
   }
 
   // ---------- the ministries ----------
-  // Prosperity: exchange three of one resource for two of another.
   trade(from, to) {
     if (this.phase !== 'plan' || from === to || !this.canPay({ [from]: C.trade.give })) return false;
     this.res[from] -= C.trade.give; this.res[to] = Math.min(C.resMax, this.res[to] + C.trade.get); return true;
@@ -330,7 +274,7 @@ export class Game {
     const fl = this.fedLinked(), pol = C.policy[this.policy], mf = 0.5 + this.morale / 100, r = { fuel: C.capitalYield.fuel, army: C.capitalYield.army, drop: C.capitalYield.drop * mf };
     for (const p of this.P) {
       if (p.owner !== 'fed' || p.id === 0 || !fl.has(p.id)) continue;
-      const m = (1 + C.develop.mult * p.dev) * (this.route != null && p.spoke === this.route ? C.route.yield : 1);
+      const m = (1 + C.develop.mult * p.dev) * (this.priority != null && p.front === this.priority ? C.priority.yield : 1);
       for (const w of p.worlds) {
         const t = C.worlds[w.type]; if (!t.res) continue;
         r[t.res] += t.y * m * (t.res === 'drop' ? mf * pol.drop : t.res === 'army' ? pol.forge : 1);
@@ -339,16 +283,13 @@ export class Game {
     }
     return r;
   }
-  // Expansion: develop a system so its worlds pay more. The work is lost if the system falls.
   developCost(p) { return { fuel: C.develop.fuel * (p.dev + 1), army: C.develop.army * (p.dev + 1) }; }
   develop(pid) {
     const p = this.P[pid];
     if (this.phase !== 'plan' || !p || p.owner !== 'fed' || p.dev >= C.develop.max || !this.fedLinked().has(pid) || !p.worlds.some(w => C.worlds[w.type].res)) return false;
     const c = this.developCost(p); if (!this.canPay(c)) return false;
-    for (const k in c) this.res[k] -= c[k];
-    p.dev++; return true;
+    this._pay(c); p.dev++; return true;
   }
-  // Truth: one broadcast a round lifts morale; a purge removes one Dissent card from the deck for good.
   broadcast() {
     const c = C.truth.broadcast; if (this.phase !== 'plan' || this.used.broadcast || !this.canPay({ fuel: c.fuel })) return false;
     this.res.fuel -= c.fuel; this.morale = clamp(this.morale + c.morale, 0, 100); this.used.broadcast = true; return true;
@@ -361,72 +302,73 @@ export class Game {
     }
     return false;
   }
-  // Humanity: who the colonies send.
   setPolicy(k) { if (this.phase !== 'plan' || !C.policy[k]) return false; this.policy = k; return true; }
-  // Employment: one route gets the work and the supply.
-  setRoute(k) { if (this.phase !== 'plan') return false; this.route = this.route === k ? null : k; return true; }
+  setPriority(k) { if (this.phase !== 'plan') return false; this.priority = this.priority === k ? null : k; return true; }
   // Intelligence: what to do about the position, most pressing first.
   advice() {
     const out = [], say = (kind, text, pid) => out.push({ kind, text, pid }), fl = this.fedLinked();
     if (this.offers.length) say('good', 'A card is on offer for your deck.');
-    const seen = this.threats.filter(t => !t.hidden), cap = seen.filter(t => t.to === 0 && !this.pins(t));
-    if (new Set(cap.map(t => t.f)).size >= 2) say('bad', `Two enemies strike ${N.capital} this round. That is defeat unless one is pinned: attack ${cap.map(t => this.P[t.from].name).join(' or ')} with at least half its strength.`, cap[0].from);
-    else for (const t of cap) say('bad', `${N.factions[t.f]} strikes ${N.capital} from ${this.P[t.from].name}. Pin it with an operation there, or give a Defence Order.`, t.from);
-    if (this.threats.some(t => t.hidden)) say('bad', 'The Shroud hides the Veil\'s attacks this round. Keep Army in hand.');
-    const dp = this.defPlan();
-    for (const t of seen) {
-      if (t.to === 0 || this.pins(t)) continue;
-      const D = dp.get(t).D, p = this.P[t.to];
-      if (D < t.str * 1.08) say('warn', `${p.name} is likely to fall (${Math.round(t.str)} against your ${Math.round(D)})${p.relic ? ', and it holds a relic' : p.kind === 'gate' || p.kind === 'junction' ? ', and it is a ' + p.kind : ''}. Reinforce it, give a Defence Order, or pin the attack at ${this.P[t.from].name}.`, t.to);
-    }
-    for (let s = 0; s < 3; s++) {
-      const f = C.factions[s], F = this.F[f]; if (F.state !== 'active') continue;
-      const ts = this.targets(s).sort((a, b) => this.enemyAt(a) - this.enemyAt(b));
-      if (this.mobReady(s)) say('good', `The front against ${N.factions[f]} is mobilised. Launch the major offensive within ${this.mob.until - this.round + 1} round(s).`, ts[0]);
-      if (ts.length && !this.count(s)) {
-        const home = ts.find(id => this.P[id].kind === 'home');
-        say('info', `${N.factions[f]} is weak to ${C.weak[f].toUpperCase()} cards. Softest system in reach: ${this.P[ts[0]].name} (${Math.round(this.enemyAt(ts[0]))})${home != null ? `. Its home is in reach (${Math.round(this.enemyAt(home))})` : ''}.`, ts[0]);
+    const hot = [];
+    for (const p of this.P) { const t = this.threat(p.id); if (t) hot.push({ p, t, d: this.defence(p.id, t.f, fl) }); }
+    hot.sort((a, b) => a.p.ring - b.p.ring);
+    const cap = hot.find(h => h.p.id === 0);
+    if (cap) say('bad', `${N.factions[cap.t.f]} can strike ${N.capital} next turn: ${Math.round(cap.t.str)} against your ${Math.round(cap.d)}.${this.capHit.length ? ' A second enemy striking it in the same round is defeat.' : ''} Bring a fleet home.`, 0);
+    let n = 0;
+    for (const h of hot) if (h.p.id && h.d < h.t.str * 1.08 && n++ < 3) say(this.canAct(h.p.id) ? 'warn' : 'info', `${h.p.name} is likely to fall: ${N.factions[h.t.f]} has ${Math.round(h.t.str)} beside it against your ${Math.round(h.d)}.${this.canAct(h.p.id) ? ' Move a fleet in, build a ship there, or lay a trap.' : ' Its front comes later this round.'}`, h.p.id);
+    if (this.phase === 'plan') {
+      const mine = this.fleets.filter(f => f.owner === 'fed' && !f.moved && f.order == null && this.canAct(f.at));
+      let k = 0;
+      for (const f of mine) for (const t of this.P[f.at].adj) {
+        const q = this.P[t]; if (q.owner === 'fed' || k >= 2) continue;
+        const g = this.garrison(t), s = this.fleetStr(f, true);
+        if (s >= g * 1.15) { k++; say('good', `Your fleet at ${this.P[f.at].name} (${Math.round(s)}) can take ${q.name} (${Math.round(g)})${q.kind === 'home' ? ', the enemy home' : q.relic ? ', a relic system' : ''}.`, f.at); break; }
       }
-      if (F.cards.length) say('warn', `${N.factions[f]} holds a card and will play it next turn.`);
+      if (mine.length) say('info', `${mine.length} of your fleet${mine.length > 1 ? 's have' : ' has'} no order this turn. Tap a system with a fleet, then tap where it should go.`, mine[0].at);
+      if (this.canPay(C.ship.cost) && this.P.some(p => this.canBuild(p.id))) say('info', 'You can afford a ship. Tap a system of yours near the fighting and build one.');
     }
-    if (!this.mob && C.factions.some(f => this.F[f].state === 'active')) say('info', 'No front is mobilised. A major offensive needs a round of preparation: Ministry of Defence.');
+    for (const f of C.factions) { const F = this.F[f]; if (F.state === 'active' && F.cards.length) say('warn', `${N.factions[f]} holds a card and will play it on its turn.`); }
     const dis = this.deckCount('dissent'); if (dis) say('warn', `${dis} Dissent card${dis > 1 ? 's' : ''} in your deck. The Ministry of Truth can remove ${dis > 1 ? 'them' : 'it'}.`);
     if (this.morale < C.deck.low) say('warn', 'Morale is low: you draw one card fewer. Ministry of Truth.');
-    if (this.res.fuel < 4) say('warn', 'Fuel is short. The Ministry of Prosperity can exchange Army or Vanguard for it.');
-    for (const p of this.P) if (p.relic && p.owner !== 'fed' && this.canTarget(p.id, fl)) say('info', `${p.name} holds the relic ${C.cards[p.relic].name}. Retaking it gives you the card.`, p.id);
+    if (this.res.fuel < 2) say('warn', 'Fuel is short. The Ministry of Prosperity can exchange Army or Vanguard for it.');
     const cut = this.P.filter(p => p.owner === 'fed' && !fl.has(p.id)).length; if (cut) say('warn', `${cut} of your systems ${cut > 1 ? 'are' : 'is'} cut off: no income, half defence.`);
     return out.slice(0, 8);
   }
 
-  // ---------- the round ----------
+  // ---------- the turn ----------
   _fight(P, E) { return { P, E, p: 0.5, t: 0, done: false, win: null }; }
-  endPlan() {
+  _firstFront() { this.fi = C.fronts.findIndex((_, i) => this.atWar(i)); this.phase = 'plan'; this.stage = 'you'; }
+  // End your turn on this front: fleets ordered to your own systems move, and fleets ordered onto enemy systems attack.
+  endTurn() {
     if (this.phase !== 'plan' || this.over) return;
-    const fl = this.fedLinked(); this.battles = []; this.offers = [];
-    for (const t of this.threats) t.pinned = this.pins(t);
-    for (let s = 0; s < 3; s++) {
-      const o = this.ops[s]; if (!o || !o.cards.length) continue;
-      const c = this.cost(s), p = this.P[o.target], f = p.owner;
-      const b = { id: ++this.bid, kind: 'op', s, f, pid: p.id, fight: this._fight(this.opStrength(s), this.opEnemy(s)), paid: { drop: c.drop, army: c.army }, dir: this.major(s), news: this.major(s) && this.prop.newsreel };
-      for (const k in c) this.res[k] -= c[k];
-      this.discard.push(...o.cards);
-      if (f === 'veil') this.morale = clamp(this.morale - C.veilCost, 0, 100);
-      this.battles.push(b);
+    this.battles = []; this.offers = [];
+    const atk = new Map();
+    for (const f of this.fleets) {
+      if (f.owner !== 'fed' || f.order == null) continue;
+      const to = f.order; f.order = null;
+      if (this.P[to].owner === 'fed') { this.moves.push({ owner: 'fed', from: f.at, to, ships: f.ships }); f.at = to; f.moved = true; }
+      else { if (!atk.has(to)) atk.set(to, []); atk.get(to).push(f); }
     }
-    const live = this.threats.filter(t => !t.pinned);
-    if (new Set(live.filter(t => t.to === 0).map(t => t.f)).size >= 2) {
-      this.threats = []; return this._end('lost', `Two enemies reached ${N.capital} in the same hour.`);
+    for (const [pid, fs] of atk) {
+      const p = this.P[pid]; let P = 0; for (const f of fs) { P += this.fleetStr(f, true, fs.length - 1); f.moved = true; }
+      if (p.owner === 'veil') this.morale = clamp(this.morale - C.veilCost, 0, 100);
+      this.battles.push({ id: ++this.bid, kind: 'op', f: p.owner, pid, from: fs[0].at, fleets: fs.map(f => f.id), fight: this._fight(P, this.garrison(pid)) });
     }
-    live.sort((a, b) => this.P[a.to].ring - this.P[b.to].ring);
-    for (const t of live) {
-      if (this.P[t.to].owner !== 'fed') continue;   // only systems the Federation holds are ever defended
-      const { D, n } = this.defence(t, this.res.army, fl);
-      this.res.army -= n;
-      this.battles.push({ id: ++this.bid, kind: 'def', s: t.s, f: t.f, pid: t.to, from: t.from, fight: this._fight(D, t.str), army: n, str: t.str });
-    }
-    if (this.directive && this.directive.mode === 'attack') this.mob = null;   // the offensive is spent
-    this.ops = [null, null, null]; this.threats = []; this.phase = 'battle';
-    if (!this.battles.length) this._resolve();
+    this.stage = 'yourBattle';
+    if (this.battles.length) this.phase = 'battle'; else this._afterYours();
+  }
+  _afterYours() {
+    this.battles = [];
+    if (this.fi < 0) return this._endRound();
+    const n = this._enemyTurn(C.fronts[this.fi].f);
+    if (this.over) return;
+    this.stage = 'enemyBattle';
+    if (n) this.phase = 'battle'; else this._nextFront();
+  }
+  _nextFront() {
+    this.battles = [];
+    let i = this.fi + 1; while (i < 3 && !this.atWar(i)) i++;
+    if (i >= 3) return this._endRound();
+    this.fi = i; this.phase = 'plan'; this.stage = 'you';
   }
 
   // Fights run live: the bar drifts toward the stronger side, with some luck, until it fills or time runs out.
@@ -440,66 +382,96 @@ export class Game {
       if (f.p >= 1 || f.p <= 0 || f.t >= C.battle.dur) { f.done = true; f.win = f.p >= 0.5; f.p = clamp(f.p, 0, 1); } else open++;
     }
     // A short hold once every fight is settled, so the results can be read on the map.
-    if (!open && (this.hold = (this.hold || 0) + dt) >= C.battle.hold) { this.hold = 0; this._resolve(); }
+    if (!open && (this.hold = (this.hold || 0) + dt) >= C.battle.hold) {
+      this.hold = 0; this._resolve(); if (this.over) return;
+      if (this.stage === 'yourBattle') this._afterYours(); else this._nextFront();
+    }
   }
+
+  // Take `n` ships off a group of fleets, biggest first; empty fleets are removed. `keep` ships always survive.
+  _losses(fs, n, keep = 0) {
+    let total = fs.reduce((a, f) => a + f.ships, 0); n = Math.min(n, Math.max(0, total - keep));
+    while (n-- > 0) { const f = fs.filter(x => x.ships > 0).sort((a, b) => b.ships - a.ships)[0]; if (!f) break; f.ships--; }
+    for (const f of fs) if (f.ships <= 0) this.fleets.splice(this.fleets.indexOf(f), 1);
+  }
+  // A beaten fleet falls back to a neighbouring system of its own side, or is lost if there is none.
+  _retreat(fs, pid, owner) {
+    const fl = owner === 'fed' ? this.fedLinked() : null;
+    const outs = this.P[pid].adj.filter(n => this.P[n].owner === owner).sort((a, b) => (owner === 'fed' ? (fl.has(b) - fl.has(a)) || this.P[a].dist - this.P[b].dist : this.P[b].dist - this.P[a].dist));
+    for (const f of fs) {
+      if (!this.fleets.includes(f)) continue;
+      if (!outs.length) { this.fleets.splice(this.fleets.indexOf(f), 1); continue; }
+      this.moves.push({ owner, from: pid, to: outs[0], ships: f.ships }); f.at = outs[0]; f.order = null;
+    }
+  }
+  _capture(p, owner) { p.owner = owner; p.bonus = 0; p.dev = 0; p.yard = 0; if (p.trap) { this.discard.push(p.trap); p.trap = null; } }
 
   _resolve() {
     const add = (k, n) => { this.res[k] = Math.min(C.resMax, this.res[k] + n); };
     for (const b of this.battles) {
       const p = this.P[b.pid], F = this.F[b.f], fn = N.factions[b.f], f = b.fight;
       if (F.state === 'dead') continue;
+      const ours = b.kind === 'op' ? this.fleets.filter(x => b.fleets.includes(x.id)) : this.fleetsAt(b.pid, 'fed');
+      const theirs = b.kind === 'op' ? this.fleetsAt(b.pid, b.f) : this.fleets.filter(x => b.fleets.includes(x.id));
       if (b.kind === 'op') {
-        if (f.evac) { add('drop', b.paid.drop); add('army', b.paid.army); this.say('info', `Operation on ${p.name} recalled.`); continue; }
+        if (f.evac) { this.say('info', `The attack on ${p.name} is recalled.`); continue; }
         if (f.win) {
-          add('drop', Math.floor(b.paid.drop / 2)); add('army', Math.floor(b.paid.army / 2));
+          for (const x of theirs) x.ships -= Math.ceil(x.ships * C.loss.loser);
+          this._losses(theirs, 0); this._retreat(theirs, b.pid, b.f);
+          this._losses(ours, Math.round(f.E / S * C.loss.winner), 1);
+          for (const x of ours) if (this.fleets.includes(x)) x.at = b.pid;
           this.stats.opsWon++; this.stats.taken++; this.morale += C.mor.off;
           if (b.f === 'foundry') add('army', C.scrap);
-          if (b.news) { this.morale += 10; add('drop', 4); this.say('good', 'The newsreel plays in every square: +10 morale, +4 Vanguard.'); }
-          if (p.kind === 'home') { this._kill(b.f); continue; }
-          p.owner = 'fed'; p.bonus = 0; p.dev = 0;
-          this.say('good', `${p.name} retaken from ${fn}.`);
+          if (p.kind === 'home') { this._capture(p, 'fed'); this._kill(b.f); continue; }
+          this._capture(p, 'fed');
+          this.say('good', `${p.name} taken from ${fn}.`);
           if (p.relic) { this.give(p.relic, `${p.name} retaken`); p.relicAt = this.round + C.relic.every; }
-          if (b.dir || p.kind === 'junction' || p.trait) this._offer(`${p.name} retaken`);
+          if (p.relic || p.ring <= 2 || f.E >= 5 * S) this._offer(`${p.name} taken`);
         } else {
+          for (const x of ours) x.ships -= Math.ceil(x.ships * C.loss.loser);
+          this._losses(ours, 0);
+          this._losses(theirs, Math.round(f.P / S * C.loss.winner), theirs.length ? 1 : 0);
           this.stats.opsLost++; this.morale -= C.mor.offLoss;
-          this.say('bad', `Operation on ${p.name} failed.`);
-          if (b.dir) this._enemyCard(b.f);
+          this.say('bad', `The attack on ${p.name} failed. The fleet pulls back with half its ships.`);
         }
       } else if (f.win) {
-        add('army', Math.floor(b.army / 2)); this.stats.held++; this.morale += C.mor.def;
+        for (const x of theirs) { x.ships -= Math.ceil(x.ships * C.loss.loser); x.wait = 0; }
+        this._losses(theirs, 0);
+        this._losses(ours, Math.round(f.E / S * C.loss.winner), ours.length ? 1 : 0);
+        this.stats.held++; this.morale += C.mor.def;
         this.say('good', `${p.name} held against ${fn}.`);
-        if (b.pid === 0) { this.retal[b.s] = true; this._offer(`${N.capital} stands`); this.say('good', `${fn} is spent at the gates. Retaliation on that front is free this round.`); }
+        if (b.pid === 0) this._offer(`${N.capital} stands`);
       } else {
         if (b.pid === 0) return this._end('lost', `${N.capital} fell to ${fn}.`);
-        p.owner = b.f; p.bonus = 0; p.dev = 0; this.stats.fallen++; this.morale -= C.mor.defLoss; F.force += b.str * C.winBack;
+        for (const x of ours) x.ships -= Math.ceil(x.ships * C.loss.loser);
+        this._losses(ours, 0); this._capture(p, b.f); this._retreat(ours, b.pid, 'fed');
+        this._losses(theirs, Math.round(f.P / S * C.loss.winner), 1);
+        for (const x of theirs) if (this.fleets.includes(x)) { x.at = b.pid; x.wait = 0; }
+        this.stats.fallen++; this.morale -= C.mor.defLoss;
         this.discard.push('dissent');
         this.say('bad', `${p.name} fell to ${fn}. Dissent spreads: a Dissent card joins your deck.`);
-        if (p.kind === 'gate' || p.kind === 'junction' || p.relic) this._enemyCard(b.f);
+        if (p.ring <= 2 || p.relic) this._enemyCard(b.f);
       }
     }
-    this.battles = []; this.directive = null; this.secondary = true;
-    this.prop = { rally: false, newsreel: false }; this.used = { broadcast: false };
-    for (const p of this.P) p.temp = 0;
-    const hadRetal = this.retal; this.retal = [false, false, false];
-    this.round++;
-    if (this.mob && this.round > this.mob.until) { this.mob = null; this.say('warn', 'The mobilisation has stood down. The offensive was never launched.'); }
-    this._arrivals();
-    for (const f of C.factions) this._enemyTurn(f);
-    this._income();
-    this.retal = hadRetal.map((v, s) => v && this.F[C.factions[s]].state === 'active');
-    this._drawHand();
-    this.phase = 'plan';
-    if (C.factions.every(f => this.F[f].state === 'dead')) this._end('won', 'All three enemies are gone from the map.');
+    this._merge();
+  }
+  // Enemy fleets that end up in the same system join up. The Swarm stays in small packs.
+  _merge() {
+    for (const f of C.factions) {
+      if (f === 'swarm') continue;
+      const at = new Map();
+      for (const x of [...this.fleets]) { if (x.owner !== f) continue; const a = at.get(x.at); if (a) { a.ships += x.ships; a.wait = Math.max(a.wait, x.wait); this.fleets.splice(this.fleets.indexOf(x), 1); } else at.set(x.at, x); }
+    }
   }
 
   _kill(f) {
-    const F = this.F[f]; F.state = 'dead'; F.force = 0;
-    for (const p of this.P) if (p.owner === f) { p.owner = 'fed'; p.bonus = 0; p.dev = 0; }
-    if (this.mob && this.mob.s === F.sector) this.mob = null;
-    this.threats = this.threats.filter(t => t.f !== f);
+    const F = this.F[f]; F.state = 'dead';
+    for (const p of this.P) if (p.owner === f) this._capture(p, 'fed');
+    this.fleets = this.fleets.filter(x => x.owner !== f);
     this.morale += C.mor.kill;
-    this.say('good', `${N.homes[F.sector]} is taken. ${N.factions[f]} is wiped from the map.`);
+    this.say('good', `${N.homes[f]} is taken. ${N.factions[f]} is wiped from the map.`);
     this._offer(`${N.factions[f]} destroyed`);
+    if (C.factions.every(k => this.F[k].state === 'dead')) this._end('won', 'All three enemies are gone from the map.');
   }
   // A major loss hands that enemy a card from its deck. It plays one at the start of each of its turns.
   _enemyCard(f) {
@@ -509,91 +481,99 @@ export class Game {
 
   _arrivals() {
     for (const f of C.factions) {
-      const F = this.F[f];
+      const F = this.F[f], c = C.enemy[f];
       if (F.state === 'wait' && this.round >= F.at - C.warn) {
         F.state = 'warn';
-        this.say('warn', `Ministry of Intelligence: hostile signals near ${N.homes[F.sector]}. Expected in ${Math.max(1, F.at - this.round)} round(s).`);
+        this.say('warn', `Ministry of Intelligence: hostile signals near ${N.homes[f]}, on the ${C.fronts[F.front].name.toLowerCase()}. Expected in ${Math.max(1, F.at - this.round)} round(s).`);
       }
       if (F.state === 'warn' && this.round >= F.at) {
-        F.state = 'active'; F.force = C.enemy[f].init;
-        // They burst in: the home, the outer systems beside it and the systems beyond those fall at once.
-        const take = [F.home];
-        for (const n of this.P[F.home].adj) { take.push(n); for (const m of this.P[n].adj) if (this.P[m].kind === 'mid') take.push(m); }
-        for (const id of take) { const p = this.P[id]; p.owner = f; p.bonus = 0; p.dev = 0; }
-        this.say('bad', `${N.factions[f]} has taken ${N.homes[F.sector]} and four systems around it.`);
+        F.state = 'active';
+        // They burst in: the home and the systems beside it on its front fall at once.
+        const take = [F.home, ...this.P[F.home].adj.filter(n => this.P[n].front === F.front)];
+        for (const id of take) { this._capture(this.P[id], f); this._retreat(this.fleetsAt(id, 'fed'), id, 'fed'); }
+        c.init.forEach((n, i) => this._spawn(f, take[i % take.length], n));
+        this.say('bad', `${N.factions[f]} has taken ${N.homes[f]} and ${take.length - 1} systems beside it. The ${C.fronts[F.front].name.toLowerCase()} is open.`);
       }
     }
   }
 
+  // The enemy's turn on its front: it plays a card if it holds one, builds at its home, then every fleet moves one
+  // system toward your territory or attacks a system beside it. Returns the number of battles to fight.
   _enemyTurn(f) {
-    const F = this.F[f], c = C.enemy[f]; F.played = null; if (F.state !== 'active') return;
-    F.force += c.grow + this.P.filter(p => p.owner === f).length * c.per + this.round * c.ramp;
-    let mult = 1, bonus = 0, deepOk = f === 'veil', hidden = false;
+    const F = this.F[f], c = C.enemy[f]; F.played = null; if (F.state !== 'active') return 0;
+    let mult = 1, bonus = 0, steps = 1;
     const card = F.cards.shift();
     if (card) {
-      F.played = card;   // shown when its turn is replayed on the map
-      const cd = C.enemyCards[f][card];
+      const cd = C.enemyCards[f][card]; F.played = card;
       this.say('bad', `${N.factions[f]} plays ${cd.name}: ${cd.text}.`);
-      if (card === 'frenzy') mult = C.frenzy;
-      else if (card === 'brood') F.force += 8;
-      else if (card === 'tunnel') deepOk = true;
-      else if (card === 'surge') F.force += 9;
+      if (card === 'frenzy') mult = 1.5;
+      else if (card === 'brood' || card === 'surge') this._spawn(f, F.home, 3);
+      else if (card === 'tunnel') steps = 2;
       else if (card === 'engines') bonus = 4;
       else if (card === 'dig') F.dig = this.round + 2;
-      else if (card === 'conversion') { this.morale -= C.conversion.morale; this.res.drop = Math.max(0, this.res.drop - C.conversion.drop); }
-      else if (card === 'shroud') hidden = true;
+      else if (card === 'conversion') { this.morale -= 8; this.res.drop = Math.max(0, this.res.drop - 2); }
+      else if (card === 'shroud') { for (const p of this.P) if (p.front === F.front && p.trap) { this.discard.push(p.trap); p.trap = null; } }
       else if (card === 'dread') { this.morale -= 5; this.noRecruit = true; }
     }
-    // Where it can strike: your systems next to its linked territory.
-    const link = this.facLinked(f), cand = new Map();
-    for (const id of link) for (const n of this.P[id].adj) if (this.P[n].owner === 'fed' && !cand.has(n)) cand.set(n, id);
-    if (!cand.size) return;
-    let picks = [];
-    const near = [...cand.keys()], deep = [];
-    if (deepOk) for (const n of near) for (const m of this.P[n].adj) {   // one system past the front
-      if (m !== 0 && this.P[m].owner === 'fed' && !cand.has(m)) { cand.set(m, cand.get(n)); deep.push(m); }
-    }
-    if (f === 'swarm') {            // spreads: several small attacks at once
-      near.sort(() => this.rnd() - 0.5);
-      let n = Math.min(c.targets, near.length);
-      while (n > 1 && F.force * c.spend / n < c.minStr) n--;
-      picks = near.slice(0, n);
-      if (deep.length) picks[picks.length - 1] = deep[Math.floor(this.rnd() * deep.length)];
-    } else if (f === 'foundry') {   // builds up, then one heavy blow at the weakest point
-      if (F.force < c.hold) return;
-      const fl = this.fedLinked();
-      const soft = id => this.fort(this.P[id]) * (fl.has(id) ? 1 : C.cut) + this.P[id].ring * 0.1;
-      near.sort((a, b) => soft(a) - soft(b));
-      picks = near.slice(0, 1);
-    } else {                        // slips behind the line
-      let n = Math.min(c.targets, cand.size);
-      while (n > 1 && F.force * c.spend / n < c.minStr) n--;
-      const pool = [...near];
-      for (let i = 0; i < n; i++) {
-        const src = deep.length && this.rnd() < c.deep ? deep : pool.length ? pool : deep;
-        if (!src.length) break;
-        const pid = src.splice(Math.floor(this.rnd() * src.length), 1)[0];
-        if (!picks.includes(pid)) picks.push(pid);
+    F.pool += c.build + this.P.filter(p => p.owner === f).length * c.per + this.round * c.ramp;
+    while (F.pool >= c.fleet && this.P[F.home].owner === f) { F.pool -= c.fleet; this._spawn(f, F.home, c.fleet); }
+    this._merge();
+    const ok = id => id === 0 || this.P[id].front === F.front;   // it keeps to its own front and the capital
+    const attacks = new Map();
+    for (let step = 0; step < steps; step++) {
+      // hops to your nearest system, through its own territory
+      const fd = this.P.map(() => 99), q = [];
+      for (const p of this.P) if (p.owner === 'fed' && ok(p.id)) { fd[p.id] = 0; q.push(p.id); }
+      while (q.length) { const a = q.shift(); for (const b of this.P[a].adj) if (ok(b) && fd[b] > fd[a] + 1) { fd[b] = fd[a] + 1; q.push(b); } }
+      const fl = this.fedLinked(), mine = this.fleets.filter(x => x.owner === f && !x.going).sort((a, b) => fd[a.at] - fd[b.at]);
+      // each fleet beside one of your systems picks the softest; fleets with the same target strike together
+      const want = new Map();
+      for (const x of mine) {
+        const ts = this.P[x.at].adj.filter(n => ok(n) && this.P[n].owner === 'fed'); if (!ts.length) continue;
+        ts.sort((a, b) => this.defence(a, f, fl) - this.defence(b, f, fl) || this.P[a].dist - this.P[b].dist);
+        if (!want.has(ts[0])) want.set(ts[0], []); want.get(ts[0]).push(x);
       }
+      for (const [pid, fs] of want) {
+        const str = fs.reduce((a, x) => a + x.ships * S, 0) * mult + bonus;
+        if (str >= this.defence(pid, f, fl) * c.aggr || fs.some(x => x.wait >= C.patience)) { for (const x of fs) x.going = pid; if (!attacks.has(pid)) attacks.set(pid, []); attacks.get(pid).push(...fs); }
+        else for (const x of fs) x.wait++;
+      }
+      // the rest move one system closer
+      for (const x of mine) {
+        if (x.going != null || fd[x.at] <= 1) continue;
+        const next = this.P[x.at].adj.filter(n => ok(n) && this.P[n].owner === f && fd[n] < fd[x.at]).sort((a, b) => fd[a] - fd[b] || this.rnd() - 0.5)[0];
+        if (next != null) { this.moves.push({ owner: f, from: x.at, to: next, ships: x.ships }); x.at = next; }
+      }
+      this._merge();
     }
-    if (!picks.length) return;
-    const each = F.force * c.spend / picks.length;
-    for (const to of picks) {
-      this.threats.push({ f, s: F.sector, from: cand.get(to), to, str: each * mult + bonus, hidden });
-      F.force -= each;
+    let n = 0;
+    for (const [pid, fs] of attacks) {
+      const p = this.P[pid]; for (const x of fs) delete x.going;
+      if (p.trap === 'decoy') { this.discard.push('decoy'); p.trap = null; for (const x of fs) x.wait = 0; this.say('good', `DECOY: ${N.factions[f]} turns back from ${p.name}.`); continue; }
+      let E = fs.reduce((a, x) => a + x.ships * S, 0) * mult + bonus, P = this.defence(pid, f);
+      if (p.trap === 'mines') { E *= 0.6; this.say('good', `MINEFIELD: the attack on ${p.name} loses 40% of its strength.`); }
+      if (p.trap === 'ambush') { P += 5; this.say('good', `AMBUSH: +5 defence at ${p.name}.`); }
+      if (p.trap) { this.discard.push(p.trap); p.trap = null; }
+      if (pid === 0) {
+        if (this.capHit.length && !this.capHit.includes(f)) { this._end('lost', `Two enemies struck ${N.capital} in the same round.`); return 0; }
+        this.capHit.push(f);
+      }
+      this.battles.push({ id: ++this.bid, kind: 'def', f, pid, from: fs[0].at, fleets: fs.map(x => x.id), fight: this._fight(P, E) }); n++;
     }
+    for (const x of this.fleets) delete x.going;
+    return n;
   }
 
-  _income() {
+  _endRound() {
     const fl = this.fedLinked(), r = this.res, inc = this.income();
     r.fuel += inc.fuel; r.army += inc.army; if (!this.noRecruit) r.drop += inc.drop;
     let minRing = 9, veil = 0;
     for (const p of this.P) {
+      p.temp = 0; p.built = false;
       if (p.owner !== 'fed') { minRing = Math.min(minRing, p.ring); if (p.owner === 'veil') veil++; continue; }
       // A relic system sends its card to your hand every few rounds.
       if (p.relic && fl.has(p.id) && this.round >= p.relicAt && !this.hand.includes(p.relic)) { this.give(p.relic, `relic of ${p.name}`); p.relicAt = this.round + C.relic.every; }
     }
-    // Vanguard show up for a cause: more as the enemy nears the capital.
     if (!this.noRecruit) r.drop += Math.max(0, 3 - minRing) * C.rally + (this.rnd() - 0.5);
     this.noRecruit = false;
     this.morale -= veil * C.veilDrain;
@@ -602,10 +582,16 @@ export class Game {
     this.morale = clamp(this.morale, 0, 100);
     if (this.morale < C.deck.low && this.rnd() < 0.5) { this.discard.push('dissent'); this.say('warn', 'Morale is low. Dissent spreads: a Dissent card joins your deck.'); }
     for (const k in r) r[k] = clamp(r[k], 0, C.resMax);
+    for (const f of this.fleets) { f.moved = false; f.order = null; f.strike = f.vet = f.flank = false; }
+    this.used = { broadcast: false }; this.secondary = true; this.capHit = []; this.battles = [];
+    this.round++;
+    this._arrivals();
+    this._drawHand();
+    this._firstFront();
   }
 
   _end(result, why) {
-    this.over = { result, why, round: this.round }; this.phase = 'over';
+    this.over = { result, why, round: this.round }; this.phase = 'over'; this.battles = [];
     this.say(result === 'won' ? 'good' : 'bad', why);
   }
 }

@@ -1,5 +1,7 @@
-// The board: the capital in the centre and six routes out of it. Three routes end at an enemy home; the three
-// between them are quiet, but ring lanes join the routes further out, so an enemy can go around. No DOM here.
+// The board: the capital in the centre and five rings of star systems round it, more on each ring going out.
+// The map is cut into three war fronts, one per enemy, with that enemy's home on the outer ring.
+// Lanes join each system inward and some of its neighbours on the same ring. Many lanes are left out on purpose,
+// so there are dead ends, and only a few lanes cross from one front to the next. No DOM here.
 import { C } from './config.js';
 
 export function rng32(a) {
@@ -12,68 +14,75 @@ export function rng32(a) {
 }
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V'];
-// Which kind of world is common on each route: fuel near the Swarm, forges near the Foundry, colonies near the Veil.
-const THEME = ['refinery', null, 'forge', null, 'colony', null];
+const THEME = { swarm: 'refinery', foundry: 'forge', veil: 'colony' };   // what is common on each front
 
 export function makeMap(seed = 1) {
-  const rnd = rng32(seed * 2654435761 + 7);
+  const rnd = rng32(seed * 2654435761 + 7), M = C.map;
   const names = [...C.names.planets];
   for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
   const planets = [], home = [];
-  const worldsFor = (kind, spoke, name) => {
-    const n = kind === 'home' ? 4 : kind === 'capital' || kind === 'junction' || kind === 'frontier' ? 3 : 2 + (rnd() < 0.45 ? 1 : 0);
-    const themes = spoke < 0 ? [] : THEME[spoke] ? [THEME[spoke]] : [THEME[(spoke + 5) % 6], THEME[(spoke + 1) % 6]];
+  const worldsFor = (kind, front, name) => {
+    const n = kind === 'home' ? 4 : kind === 'capital' ? 3 : 2 + (rnd() < 0.4 ? 1 : 0);
     const w = { refinery: 2, forge: 2, colony: 2, fortress: 1, barren: 2 };
-    for (const t of themes) w[t] += themes.length === 1 ? 5 : 2;
+    if (front >= 0) w[THEME[C.fronts[front].f]] += 4;
     const out = [];
     for (let i = 0; i < n; i++) {
       let type;
       if (kind === 'capital' && i === 0) type = 'capital';
-      else if ((kind === 'gate' || kind === 'home') && i === 0) type = 'fortress';
+      else if (kind === 'home' && i === 0) type = 'fortress';
       else { let tot = 0; for (const k in w) tot += w[k]; let r = rnd() * tot; for (const k in w) { r -= w[k]; if (r <= 0) { type = k; break; } } }
       out.push({ name: kind === 'capital' && i === 0 ? name : `${name} ${ROMAN[i]}`, type, size: type === 'refinery' ? 1.5 : 0.8 + rnd() * 0.5, phase: rnd() * 6.283, tint: rnd() });
     }
     return out;
   };
-  const add = (kind, spoke, ring, r, deg, name, trait = null) => {
-    const a = (deg + (rnd() - 0.5) * 4) * Math.PI / 180, rr = r + (rnd() - 0.5) * 0.025;
-    name = name || names.pop();
-    const p = { id: planets.length, name, kind, spoke, ring, x: Math.cos(a) * rr, y: Math.sin(a) * rr, adj: [], owner: 'fed',
-      bonus: 0, temp: 0, dev: 0, trait, relic: null, relicAt: 0, worlds: worldsFor(kind, spoke, name) };
-    // The key world: the one world in the system that is fought over.
-    p.key = kind === 'capital' || kind === 'gate' || kind === 'home' ? 0 : Math.floor(rnd() * p.worlds.length);
+  const add = (kind, front, ring, r, deg, name) => {
+    const a = deg * Math.PI / 180; name = name || names.pop();
+    const p = { id: planets.length, name, kind, front, ring, deg, x: Math.cos(a) * r, y: Math.sin(a) * r, adj: [], owner: 'fed',
+      bonus: 0, temp: 0, dev: 0, built: false, trap: null, relic: null, relicAt: 0, worlds: worldsFor(kind, front, name) };
+    // The key world: the one world in the system that is fought over, and whose kind helps shipbuilding there.
+    p.key = kind === 'capital' || kind === 'home' ? 0 : Math.floor(rnd() * p.worlds.length);
     planets.push(p); return p.id;
   };
-  const link = (a, b) => { planets[a].adj.push(b); planets[b].adj.push(a); };
-  const cap = add('capital', -1, 0, 0, 0, C.names.capital);
-  planets[cap].x = 0; planets[cap].y = 0;
-  const S = [];
-  for (let k = 0; k < 6; k++) {
-    const th = -90 + k * 60, enemy = k % 2 === 0, o = {};
-    o.gate = add('gate', k, 1, 0.17, th);
-    o.junc = add('junction', k, 2, 0.34, th, null, enemy ? 'shipyard' : 'bastion');
-    o.mid = [add('mid', k, 3, 0.53, th - 13), add('mid', k, 3, 0.53, th + 13)];
-    if (enemy) {
-      o.out = [add('outer', k, 4, 0.73, th - 11), add('outer', k, 4, 0.73, th + 11)];
-      o.home = add('home', k, 5, 0.94, th, C.names.homes[k / 2]); home.push(o.home);
-      link(o.mid[0], o.out[0]); link(o.mid[1], o.out[1]); link(o.out[0], o.home); link(o.out[1], o.home);
-    } else {
-      o.front = add('frontier', k, 4, 0.72, th, null, 'depot');
-      link(o.mid[0], o.front); link(o.mid[1], o.front);
+  const link = (a, b) => { if (a === b || planets[a].adj.includes(b)) return; planets[a].adj.push(b); planets[b].adj.push(a); };
+  add('capital', -1, 0, 0, 0, C.names.capital);
+  const rings = M.ring.map(() => []);   // ids on each ring, going round the map in order
+  for (let k = 0; k < M.ring.length; k++) for (let fi = 0; fi < 3; fi++) {
+    const n = M.ring[k], c = C.fronts[fi].deg, outer = k === M.ring.length - 1;
+    for (let j = 0; j < n; j++) {
+      const isHome = outer && j === (n - 1) / 2;
+      const deg = c - 60 + (j + 0.5) * 120 / n + (isHome ? 0 : (rnd() - 0.5) * 40 / n);
+      const id = add(isHome ? 'home' : 'sys', fi, k + 1, M.radius[k] + (isHome ? 0.04 : (rnd() - 0.5) * 0.03), deg, isHome ? C.names.homes[C.fronts[fi].f] : null);
+      rings[k].push(id); if (isHome) home[fi] = id;
     }
-    link(cap, o.gate); link(o.gate, o.junc); link(o.junc, o.mid[0]); link(o.junc, o.mid[1]);
-    S.push(o);
   }
-  for (let k = 0; k < 6; k++) {
-    const a = S[k], b = S[(k + 1) % 6];
-    link(a.mid[1], b.mid[0]);                                 // the inner ring road
-    if (a.out) link(a.out[1], b.front); else link(a.front, b.out[0]);   // the outer ring road
+  // Order each ring by angle so that "next on the ring" means the next one round the circle.
+  const ang = id => ((planets[id].deg % 360) + 360) % 360;
+  for (const r of rings) r.sort((a, b) => ang(a) - ang(b));
+  const gap = (a, b) => { const d = Math.abs(ang(a) - ang(b)); return Math.min(d, 360 - d); };
+  for (let k = 0; k < rings.length; k++) {
+    // inward: every system has a lane to the nearest system one ring in, so every system can be reached
+    for (const id of rings[k]) {
+      if (k === 0) { link(0, id); continue; }
+      const near = rings[k - 1].filter(q => planets[q].front === planets[id].front).sort((a, b) => gap(id, a) - gap(id, b));   // lanes inward stay on their own front
+      link(id, near[0]);
+      if (rnd() < M.second && gap(id, near[1]) < 45) link(id, near[1]);
+    }
+    // around: only some neighbours on the same ring are joined, and fewer where one front meets the next
+    for (let i = 0; i < rings[k].length; i++) {
+      const a = rings[k][i], b = rings[k][(i + 1) % rings[k].length], same = planets[a].front === planets[b].front;
+      const must = same && (planets[a].kind === 'home' || planets[b].kind === 'home');   // a home is never a dead end
+      if (must || rnd() < (same ? M.around : M.across)) link(a, b);
+    }
   }
-  // Relic systems: one mid system on each route keeps a rare card.
-  const relics = [...C.relic.cards];
-  for (let k = 0; k < 6; k++) {
-    const p = planets[S[k].mid[Math.floor(rnd() * 2)]];
-    p.relic = relics.splice(Math.floor(rnd() * relics.length), 1)[0]; p.relicAt = C.relic.first + k;
+  // Relic systems: two on each front's third ring keep a rare card.
+  const relics = [...C.relic.cards]; let n = 0;
+  for (let fi = 0; fi < 3; fi++) {
+    const pool = rings[2].filter(id => planets[id].front === fi);
+    for (let q = 0; q < 2; q++) { const p = planets[pool.splice(Math.floor(rnd() * pool.length), 1)[0]]; p.relic = relics.splice(Math.floor(rnd() * relics.length), 1)[0]; p.relicAt = C.relic.first + n++; }
   }
-  return { planets, home, capital: cap };
+  // Hops to the capital, for the enemy's sense of direction.
+  const dist = planets.map(() => 99); dist[0] = 0; const q = [0];
+  while (q.length) { const a = q.shift(); for (const b of planets[a].adj) if (dist[b] > dist[a] + 1) { dist[b] = dist[a] + 1; q.push(b); } }
+  planets.forEach((p, i) => { p.dist = dist[i]; });
+  return { planets, home, capital: 0 };
 }
